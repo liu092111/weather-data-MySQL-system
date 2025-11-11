@@ -1,0 +1,20 @@
+# GL860氣象數據MySQL管理系統 - Python依賴套件
+
+# 數據處理
+pandas>=1.3.0
+
+# Excel檔案處理
+openpyxl>=3.0.7
+
+# MySQL資料庫連接
+mysql-connector-python>=8.0.26
+
+# 定時任務調度
+schedule>=1.1.0
+
+# 郵件發送 (可選，如需要Windows服務功能)
+# pywin32>=301  # 僅Windows需要
+
+# 開發和測試工具 (可選)
+# pytest>=6.0.0
+# pytest-cov>=2.0.0
