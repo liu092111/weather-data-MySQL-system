@@ -233,3 +233,74 @@
 2025-11-11 17:02:22,830 - INFO - 成功導入 GL860 RAWDATA_2510.xlsx，插入 42168 筆記錄
 2025-11-11 17:02:22,834 - INFO - 批量導入完成，成功導入 4/4 個檔案
 2025-11-11 17:02:22,840 - INFO - 資料庫連接已關閉
+2025-11-17 10:58:02,775 - INFO - package: mysql.connector.plugins
+2025-11-17 10:58:02,777 - INFO - plugin_name: caching_sha2_password
+2025-11-17 10:58:02,777 - INFO - AUTHENTICATION_PLUGIN_CLASS: MySQLCachingSHA2PasswordAuthPlugin
+2025-11-17 10:58:02,779 - INFO - 成功連線到資料庫
+2025-11-17 10:58:02,780 - INFO - 在 . 找到 4 個檔案，即將依序導入
+2025-11-17 10:58:02,780 - INFO - 開始導入檔案: GL860 RAWDATA_2507.xlsx
+2025-11-17 10:58:02,791 - INFO - 檔案 GL860 RAWDATA_2507.xlsx 已導入過，跳過
+2025-11-17 10:58:02,791 - INFO - 開始導入檔案: GL860 RAWDATA_2508.xlsx
+2025-11-17 10:58:02,796 - INFO - 檔案 GL860 RAWDATA_2508.xlsx 已導入過，跳過
+2025-11-17 10:58:02,796 - INFO - 開始導入檔案: GL860 RAWDATA_2509.xlsx
+2025-11-17 10:58:02,800 - INFO - 檔案 GL860 RAWDATA_2509.xlsx 已導入過，跳過
+2025-11-17 10:58:02,801 - INFO - 開始導入檔案: GL860 RAWDATA_2510.xlsx
+2025-11-17 10:58:02,866 - INFO - 檔案 GL860 RAWDATA_2510.xlsx 已導入過，跳過
+2025-11-17 10:58:02,867 - INFO - 已關閉資料庫連線
+2025-11-17 13:13:56,406 - INFO - package: mysql.connector.plugins
+2025-11-17 13:13:56,407 - INFO - plugin_name: caching_sha2_password
+2025-11-17 13:13:56,407 - INFO - AUTHENTICATION_PLUGIN_CLASS: MySQLCachingSHA2PasswordAuthPlugin
+2025-11-17 13:13:56,411 - INFO - 成功連線到資料庫
+2025-11-17 13:13:56,412 - INFO - 在 . 找到 4 個檔案，即將依序導入
+2025-11-17 13:13:56,413 - INFO - 開始導入檔案: GL860 RAWDATA_2507.xlsx
+2025-11-17 13:13:56,423 - INFO - 檔案 GL860 RAWDATA_2507.xlsx 已導入過，跳過
+2025-11-17 13:13:56,423 - INFO - 開始導入檔案: GL860 RAWDATA_2508.xlsx
+2025-11-17 13:13:56,429 - INFO - 檔案 GL860 RAWDATA_2508.xlsx 已導入過，跳過
+2025-11-17 13:13:56,429 - INFO - 開始導入檔案: GL860 RAWDATA_2509.xlsx
+2025-11-17 13:13:56,435 - INFO - 檔案 GL860 RAWDATA_2509.xlsx 已導入過，跳過
+2025-11-17 13:13:56,435 - INFO - 開始導入檔案: GL860 RAWDATA_2510.xlsx
+2025-11-17 13:13:56,488 - INFO - 檔案 GL860 RAWDATA_2510.xlsx 已導入過，跳過
+2025-11-17 13:13:56,490 - INFO - 已關閉資料庫連線
+2025-11-17 13:22:03,392 - INFO - package: mysql.connector.plugins
+2025-11-17 13:22:03,393 - INFO - plugin_name: caching_sha2_password
+2025-11-17 13:22:03,393 - INFO - AUTHENTICATION_PLUGIN_CLASS: MySQLCachingSHA2PasswordAuthPlugin
+2025-11-17 13:22:03,396 - INFO - 成功連線到資料庫
+2025-11-17 13:22:03,396 - INFO - 開始導入檔案: C0AI10-2025-07.xlsx
+2025-11-17 13:22:03,400 - INFO - 開始解析 Excel 檔案: C0AI10-2025-07.xlsx
+2025-11-17 13:22:04,213 - INFO - 主要數據工作表: C0AI10-2025-07
+2025-11-17 13:22:04,257 - INFO - 偵測到GL860原始測量數據格式
+2025-11-17 13:22:04,296 - ERROR - 導入檔案 C0AI10-2025-07.xlsx 失敗: 在工作表 C0AI10-2025-07 中找不到同時包含 'NO.' 與 'Time' 的表頭列
+2025-11-17 13:22:04,312 - INFO - 已關閉資料庫連線
+2025-11-17 13:22:44,644 - INFO - package: mysql.connector.plugins
+2025-11-17 13:22:44,644 - INFO - plugin_name: caching_sha2_password
+2025-11-17 13:22:44,645 - INFO - AUTHENTICATION_PLUGIN_CLASS: MySQLCachingSHA2PasswordAuthPlugin
+2025-11-17 13:22:44,647 - INFO - 成功連線到資料庫
+2025-11-17 13:22:44,647 - INFO - 開始導入檔案: C0AI10-2025-07.xlsx
+2025-11-17 13:22:44,651 - INFO - 檔案 C0AI10-2025-07.xlsx 已導入過，跳過
+2025-11-17 13:22:44,652 - INFO - 已關閉資料庫連線
+2025-11-17 13:48:32,366 - INFO - package: mysql.connector.plugins
+2025-11-17 13:48:32,367 - INFO - plugin_name: caching_sha2_password
+2025-11-17 13:48:32,367 - INFO - AUTHENTICATION_PLUGIN_CLASS: MySQLCachingSHA2PasswordAuthPlugin
+2025-11-17 13:48:32,371 - INFO - 成功連線到資料庫
+2025-11-17 13:48:32,372 - INFO - 在 . 找到 4 個檔案，即將依序導入
+2025-11-17 13:48:32,373 - INFO - 開始導入檔案: C0AI10-2025-07.xlsx
+2025-11-17 13:48:32,375 - INFO - 檔案 C0AI10-2025-07.xlsx 已導入過，跳過
+2025-11-17 13:48:32,376 - INFO - 開始導入檔案: C0AI10-2025-08.xlsx
+2025-11-17 13:48:32,378 - INFO - 開始解析 Excel 檔案: C0AI10-2025-08.xlsx
+2025-11-17 13:48:32,786 - INFO - 主要數據工作表: C0AI10-2025-08
+2025-11-17 13:48:32,808 - INFO - 格式偵測 - 氣象站關鍵字匹配: 13, GL860關鍵字匹配: 2
+2025-11-17 13:48:32,808 - INFO - 偵測到氣象站日統計數據格式
+2025-11-17 13:48:32,847 - ERROR - 導入檔案 C0AI10-2025-08.xlsx 失敗: Unknown datetime string format, unable to parse: ObsTime, at position 0
+2025-11-17 13:48:32,853 - INFO - 開始導入檔案: C0AI10-2025-09.xlsx
+2025-11-17 13:48:32,858 - INFO - 開始解析 Excel 檔案: C0AI10-2025-09.xlsx
+2025-11-17 13:48:32,880 - INFO - 主要數據工作表: C0AI10-2025-09
+2025-11-17 13:48:32,908 - INFO - 格式偵測 - 氣象站關鍵字匹配: 11, GL860關鍵字匹配: 2
+2025-11-17 13:48:32,908 - INFO - 偵測到氣象站日統計數據格式
+2025-11-17 13:48:32,935 - ERROR - 導入檔案 C0AI10-2025-09.xlsx 失敗: Unknown datetime string format, unable to parse: ObsTime, at position 0
+2025-11-17 13:48:32,942 - INFO - 開始導入檔案: C0AI10-2025-10.xlsx
+2025-11-17 13:48:32,944 - INFO - 開始解析 Excel 檔案: C0AI10-2025-10.xlsx
+2025-11-17 13:48:32,961 - INFO - 主要數據工作表: C0AI10-2025-10
+2025-11-17 13:48:32,981 - INFO - 格式偵測 - 氣象站關鍵字匹配: 12, GL860關鍵字匹配: 2
+2025-11-17 13:48:32,981 - INFO - 偵測到氣象站日統計數據格式
+2025-11-17 13:48:33,005 - ERROR - 導入檔案 C0AI10-2025-10.xlsx 失敗: Unknown datetime string format, unable to parse: ObsTime, at position 0
+2025-11-17 13:48:33,011 - INFO - 已關閉資料庫連線

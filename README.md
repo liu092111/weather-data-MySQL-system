@@ -1,411 +1,362 @@
-# GL860氣象數據MySQL管理系統
+# 統一氣象數據導入系統
 
-這是一個完整的GL860氣象記錄器數據管理解決方案，支持Excel檔案自動導入MySQL資料庫，並提供定時維護、備份和報告功能。
+這是一個支援多種氣象數據格式的統一導入系統，能夠自動識別並處理 CIA（氣象局日統計）和 GL860（原始測量數據）兩種 Excel 格式，並部署到 MySQL 資料庫中。
 
-## 🎯 功能特色
+## 🎯 系統特色
 
-- ✅ **Excel自動導入**: 支持GL860產生的Excel檔案自動解析和導入
-- ✅ **數據完整性**: 防重複導入，hash校驗確保數據完整
-- ✅ **自動化維護**: 定時導入、備份、清理和報告
-- ✅ **多工作表支持**: 自動識別溫度、濕度、降水量等數據
-- ✅ **統計分析**: 自動生成日、月統計數據
-- ✅ **郵件通知**: 支持導入結果和異常通知
-- ✅ **日誌記錄**: 完整的操作日誌和錯誤追蹤
+- ✅ **自動格式識別**：自動偵測 CIA-XXX 和 GL860XXX 兩種檔案格式
+- ✅ **清楚的檔案讀取顯示**：提供 `read_file('檔案名稱')` 格式的明確顯示
+- ✅ **統一資料結構**：將不同格式的數據整合到標準化的資料庫架構
+- ✅ **防重複導入**：使用檔案 hash 防止重複導入相同檔案
+- ✅ **完整統計功能**：自動計算每日平均、最高、最低溫濕度
+- ✅ **統一查詢視圖**：提供包含所有要求資訊的整合檢視
 
-## 📋 系統需求
+## 📋 支援的資訊欄位
 
-### 軟體需求
-- **Python 3.7+**
-- **MySQL 5.7+ 或 MySQL 8.0+**
-- **MySQL Workbench** (推薦用於資料庫管理)
+系統整合後可查詢的完整資訊包括：
 
-### Python套件依賴
-```
-pandas>=1.3.0
-mysql-connector-python>=8.0.26
-schedule>=1.1.0
-openpyxl>=3.0.7
-```
+- **基本資訊**：year, month, time
+- **Channel 數據**：channel 1 temperature, channel 2 humidity, channel 3 lux, channel 4 UV, channel 5 device degree
+- **每日統計**：每日平均溫度濕度、每日最高溫度濕度、每日最低溫度濕度
+- **CIA 氣象局數據**：CIA的溫度、CIA濕度、CIA 降雨量
 
 ## 🚀 快速開始
 
-### 1. 環境準備
+### 1. 安裝依賴
 
 ```bash
-# 1. 克隆或下載專案檔案
-git clone <repository_url>
-cd weather_mysql_system
-
-# 2. 安裝Python依賴
 pip install -r requirements.txt
-
-# 3. 確保MySQL服務運行中
-# Windows: 檢查服務管理員
-# Linux/Mac: sudo systemctl status mysql
 ```
 
-### 2. 資料庫設置
-
-```bash
-# 1. 使用MySQL Workbench或命令行連接MySQL
-mysql -u root -p
-
-# 2. 執行資料庫初始化腳本
-mysql -u root -p < weather_database_schema.sql
+`requirements.txt` 內容：
+```
+pandas>=1.5.0
+mysql-connector-python>=8.0.0
+openpyxl>=3.0.0
 ```
 
-### 3. 配置系統
+### 2. 設置資料庫
 
-第一次運行時會自動生成配置檔案 `config.ini`：
+在 MySQL Workbench 中執行以下腳本建立資料庫：
 
-```bash
-python automated_maintenance.py
-```
-
-編輯 `config.ini` 設置您的環境：
-
-```ini
-[database]
-host = localhost
-port = 3306
-database = weather_data
-username = root
-password = your_mysql_password
-
-[paths]
-watch_directory = ./data
-processed_directory = ./processed  
-backup_directory = ./backup
-
-[email]
-enabled = false
-smtp_server = smtp.gmail.com
-smtp_port = 587
-username = your_email@gmail.com
-password = your_app_password
-to_emails = admin@example.com,manager@example.com
-```
-
-### 4. 目錄結構設置
-
-```bash
-# 創建必要的目錄
-mkdir data processed backup
-
-# data/       - 放置待導入的Excel檔案
-# processed/  - 已處理的Excel檔案存放處
-# backup/     - 資料庫備份和報告存放處
-```
-
-## 📖 使用指南
-
-### 手動導入Excel檔案
-
-```bash
-# 導入單個檔案
-python excel_to_mysql_importer.py --file "GL860 RAWDATA_2507.xlsx"
-
-# 批量導入目錄中的所有Excel檔案
-python excel_to_mysql_importer.py --directory "./data"
-
-# 指定資料庫連接參數
-python excel_to_mysql_importer.py \
-  --file "data.xlsx" \
-  --host localhost \
-  --username root \
-  --password your_password
-```
-
-### 自動化維護
-
-```bash
-# 啟動自動化維護排程器（推薦方式）
-python automated_maintenance.py
-
-# 執行特定維護任務
-python automated_maintenance.py --action import    # 手動導入檢查
-python automated_maintenance.py --action backup   # 手動備份
-python automated_maintenance.py --action clean    # 手動清理舊數據
-python automated_maintenance.py --action report   # 生成日報告
-```
-
-### MySQL Workbench中查看數據
-
-1. **連接資料庫**: 在MySQL Workbench中連接到 `weather_data` 資料庫
-2. **查看原始數據**: 
-   ```sql
-   SELECT * FROM v_weather_summary ORDER BY measurement_time DESC LIMIT 100;
-   ```
-3. **查看統計數據**:
-   ```sql
-   SELECT * FROM v_monthly_stats ORDER BY year DESC, month DESC;
-   ```
-4. **查看導入記錄**:
-   ```sql
-   SELECT * FROM import_logs ORDER BY import_time DESC;
-   ```
-
-## 🗂️ 資料庫架構
-
-### 主要數據表
-
-| 表名 | 說明 | 主要欄位 |
-|------|------|----------|
-| `devices` | 設備信息 | 設備型號、名稱、位置 |
-| `channels` | 通道配置 | 通道號、測量類型、单位 |
-| `weather_raw_data` | 原始氣象數據 | 時間、溫度、濕度 |
-| `weather_daily_stats` | 日統計數據 | 日期、平均值、極值 |
-| `import_logs` | 導入記錄 | 檔案名、導入時間、狀態 |
-
-### 有用的查詢視圖
-
-- `v_weather_summary`: 氣象數據摘要視圖
-- `v_monthly_stats`: 月統計數據視圖
-
-## 🔧 常用SQL查詢
-
-### 查詢最近7天的溫濕度數據
 ```sql
-SELECT 
-    measurement_time,
-    ch1_temp as temperature,
-    ch2_humidity as humidity
-FROM weather_raw_data 
-WHERE measurement_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-ORDER BY measurement_time ASC;
+-- 1. 建立基本資料庫架構
+SOURCE weather_database_schema.sql;
+
+-- 2. 建立統一查詢視圖
+SOURCE unified_weather_views.sql;
 ```
 
-### 查詢月平均統計
-```sql
-SELECT 
-    year, month,
-    ROUND(avg_temperature, 2) as avg_temp,
-    ROUND(avg_humidity, 2) as avg_humidity,
-    total_precipitation as total_rain
-FROM v_monthly_stats
-ORDER BY year DESC, month DESC;
-```
+### 3. 基本使用方法
 
-### 查詢每日極值
-```sql
-SELECT 
-    stat_date,
-    temp_max as max_temp,
-    temp_min as min_temp,
-    humidity_max as max_humidity,
-    precipitation
-FROM weather_daily_stats 
-WHERE stat_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-ORDER BY stat_date DESC;
-```
-
-## 🤖 生產環境部署
-
-### 1. Windows服務部署
-
-創建Windows服務腳本 `weather_service.py`:
+#### 方法一：Python API 使用
 
 ```python
-import win32serviceutil
-import win32service
-import win32event
-import servicemanager
-import subprocess
-import os
+from unified_weather_importer import read_file, read_directory, get_unified_view
 
-class WeatherService(win32serviceutil.ServiceFramework):
-    _svc_name_ = "WeatherDataService"
-    _svc_display_name_ = "GL860 Weather Data Service"
-    _svc_description_ = "GL860氣象數據自動化維護服務"
+# 導入單一檔案 - CIA 格式
+read_file('C0AI10-2025-07.xlsx')
 
-    def __init__(self, args):
-        win32serviceutil.ServiceFramework.__init__(self, args)
-        self.hWaitStop = win32event.CreateEvent(None, 0, 0, None)
+# 導入單一檔案 - GL860 格式  
+read_file('GL860 RAWDATA_2507.xlsx')
 
-    def SvcStop(self):
-        self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
-        win32event.SetEvent(self.hWaitStop)
+# 批量導入目錄中的所有 Excel 檔案
+read_directory('./', pattern='*.xlsx')
 
-    def SvcDoRun(self):
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        subprocess.call([
-            'python', 
-            os.path.join(script_dir, 'automated_maintenance.py')
-        ])
-
-if __name__ == '__main__':
-    win32serviceutil.HandleCommandLine(WeatherService)
+# 取得統一的資料檢視
+df = get_unified_view('2025-07-01', '2025-10-31')
+print(df.head())
 ```
 
-### 2. Linux Systemd服務部署
-
-創建服務檔案 `/etc/systemd/system/weather-service.service`:
-
-```ini
-[Unit]
-Description=GL860 Weather Data Service
-After=network.target mysql.service
-
-[Service]
-Type=simple
-User=weather
-WorkingDirectory=/opt/weather_system
-ExecStart=/usr/bin/python3 /opt/weather_system/automated_maintenance.py
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-啟動服務:
-```bash
-sudo systemctl enable weather-service
-sudo systemctl start weather-service
-sudo systemctl status weather-service
-```
-
-### 3. Docker部署
-
-創建 `Dockerfile`:
-
-```dockerfile
-FROM python:3.9-slim
-
-WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-COPY . .
-
-CMD ["python", "automated_maintenance.py"]
-```
-
-創建 `docker-compose.yml`:
-
-```yaml
-version: '3.8'
-services:
-  mysql:
-    image: mysql:8.0
-    environment:
-      MYSQL_ROOT_PASSWORD: your_password
-      MYSQL_DATABASE: weather_data
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./weather_database_schema.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "3306:3306"
-
-  weather-service:
-    build: .
-    depends_on:
-      - mysql
-    volumes:
-      - ./data:/app/data
-      - ./processed:/app/processed
-      - ./backup:/app/backup
-      - ./config.ini:/app/config.ini
-
-volumes:
-  mysql_data:
-```
-
-## 📊 監控和維護
-
-### 1. 日誌監控
+#### 方法二：命令列使用
 
 ```bash
-# 查看導入日誌
-tail -f weather_import.log
+# 導入單一檔案
+python unified_weather_importer.py --file "C0AI10-2025-07.xlsx"
 
-# 查看維護日誌  
-tail -f weather_maintenance.log
+# 批量導入目錄
+python unified_weather_importer.py --directory "./" --pattern "*.xlsx"
 
-# 查看錯誤日誌
-grep ERROR weather_*.log
+# 指定資料庫連線參數
+python unified_weather_importer.py --file "GL860 RAWDATA_2507.xlsx" \
+  --host localhost --database weather_data --username root --password ""
 ```
 
-### 2. 資料庫性能監控
+## 📁 支援的檔案格式
+
+### CIA 格式（氣象局日統計）
+- **檔名特徵**：`C0AI10-YYYY-MM.xlsx` 或包含 `CIA` 關鍵字
+- **內容特徵**：包含 `ObsTime`、`Temperature`、`RH`、`Precp` 等欄位
+- **數據類型**：日統計數據，包含溫度、濕度、降水量等
+
+### GL860 格式（原始測量數據）
+- **檔名特徵**：`GL860 RAWDATA_YYMM.xlsx` 或包含 `GL860` 關鍵字
+- **內容特徵**：包含 `NO.`、`Time`、`degC`、`%` 等欄位
+- **數據類型**：逐時原始測量數據，包含 5 個 channel 的數據
+
+## 🔍 使用範例
+
+### 完整的使用流程
+
+```python
+#!/usr/bin/env python3
+from unified_weather_importer import read_file, get_unified_view
+import pandas as pd
+
+# 1. 導入不同格式的檔案
+print("=== 導入 CIA 氣象局數據 ===")
+read_file('C0AI10-2025-07.xlsx')
+read_file('C0AI10-2025-08.xlsx')
+read_file('C0AI10-2025-09.xlsx')
+read_file('C0AI10-2025-10.xlsx')
+
+print("\n=== 導入 GL860 原始數據 ===")
+read_file('GL860 RAWDATA_2507.xlsx')
+read_file('GL860 RAWDATA_2508.xlsx')
+read_file('GL860 RAWDATA_2509.xlsx')
+read_file('GL860 RAWDATA_2510.xlsx')
+
+# 2. 查詢統一的資料檢視
+print("\n=== 查詢統一數據 ===")
+df = get_unified_view('2025-07-01', '2025-10-31')
+
+# 3. 查看數據摘要
+print(f"總共 {len(df)} 筆記錄")
+print(f"日期範圍：{df['time'].min()} ~ {df['time'].max()}")
+print("\n欄位列表：")
+for col in df.columns:
+    print(f"  - {col}")
+
+# 4. 保存到 Excel 用於分析
+df.to_excel('unified_weather_data.xlsx', index=False)
+print("\n✅ 數據已保存到 unified_weather_data.xlsx")
+```
+
+### 運行結果示例
+
+```
+============================================================
+🔄 read_file('C0AI10-2025-07.xlsx')
+============================================================
+🔍 偵測檔案格式: C0AI10-2025-07.xlsx
+📋 偵測到 CIA 氣象局日統計格式
+📋 解析 CIA 氣象局日統計數據...
+✅ CIA 格式解析完成，共 31 筆日統計數據
+📋 處理 CIA 氣象局日統計數據...
+📈 已插入/更新日統計數據: 31 筆
+✅ CIA 數據導入完成: 31 筆日統計數據
+🎉 檔案 C0AI10-2025-07.xlsx 導入成功！
+✅ 導入完成: 31 筆記錄
+📅 日期範圍: 2025-07-01 ~ 2025-07-31
+============================================================
+
+============================================================
+🔄 read_file('GL860 RAWDATA_2507.xlsx')
+============================================================
+🔍 偵測檔案格式: GL860 RAWDATA_2507.xlsx
+📊 偵測到 GL860 原始測量數據格式
+📊 解析 GL860 原始測量數據...
+✅ GL860 格式解析完成，原始數據 4464 筆，日統計 31 筆
+📊 處理 GL860 原始測量數據...
+📊 已插入原始數據: 4464 筆
+📈 已插入/更新日統計數據: 31 筆
+✅ GL860 數據導入完成: 4464 筆原始數據 + 31 筆日統計數據
+🎉 檔案 GL860 RAWDATA_2507.xlsx 導入成功！
+✅ 導入完成: 4495 筆記錄
+📅 日期範圍: 2025-07-01 ~ 2025-07-31
+============================================================
+```
+
+## 🗄️ 資料庫查詢
+
+### 使用 SQL 查詢統一檢視
 
 ```sql
--- 查看表大小
-SELECT 
-    table_name,
-    ROUND(((data_length + index_length) / 1024 / 1024), 2) AS size_mb
-FROM information_schema.tables 
-WHERE table_schema = 'weather_data'
-ORDER BY size_mb DESC;
+-- 1. 查看所有統一數據（限制 100 筆）
+SELECT * FROM v_weather_main LIMIT 100;
 
--- 查看數據量統計
-SELECT 
-    COUNT(*) as total_records,
-    MIN(measurement_time) as earliest_data,
-    MAX(measurement_time) as latest_data
-FROM weather_raw_data;
+-- 2. 查看特定日期範圍的數據
+SELECT * FROM v_weather_main 
+WHERE DATE(time) BETWEEN '2025-07-01' AND '2025-10-31'
+ORDER BY time;
+
+-- 3. 查看日統計摘要
+SELECT * FROM v_daily_summary 
+WHERE year = 2025 AND month = 7
+ORDER BY date;
+
+-- 4. 查看月統計摘要
+SELECT * FROM v_monthly_summary 
+WHERE year = 2025
+ORDER BY month;
+
+-- 5. 使用存儲程序查詢
+CALL GetUnifiedWeatherData('2025-07-01', '2025-10-31', 1);
+CALL GetDailySummary('2025-07-01', '2025-10-31');
+
+-- 6. 檢查數據品質
+SELECT * FROM v_data_quality_check 
+WHERE date >= '2025-07-01'
+ORDER BY date DESC;
 ```
 
-### 3. 定期維護檢查清單
+### Python 中的資料庫查詢
 
-- [ ] 檢查磁碟空間是否充足
-- [ ] 確認備份檔案正常生成
-- [ ] 查看錯誤日誌是否有異常
-- [ ] 確認Excel檔案正常處理
-- [ ] 檢查郵件通知是否正常
+```python
+import mysql.connector
+import pandas as pd
 
-## 🚨 故障排除
+# 建立連線
+connection = mysql.connector.connect(
+    host='localhost',
+    database='weather_data',
+    user='root',
+    password=''
+)
+
+# 查詢統一檢視
+query = """
+SELECT year, month, time,
+       channel_1_temperature, channel_2_humidity,
+       daily_avg_temperature, daily_avg_humidity,
+       cia_precipitation
+FROM v_weather_main
+WHERE DATE(time) BETWEEN %s AND %s
+ORDER BY time
+"""
+
+df = pd.read_sql(query, connection, params=['2025-07-01', '2025-10-31'])
+print(df.head())
+
+connection.close()
+```
+
+## 📊 資料庫架構
+
+### 主要資料表
+
+1. **`weather_raw_data`** - 原始測量數據
+   - 存儲 GL860 的逐時測量數據
+   - 包含 5 個 channel 的數據
+
+2. **`weather_daily_stats`** - 日統計數據  
+   - 存儲每日統計結果和 CIA 數據
+   - 包含平均、最高、最低溫濕度及降水量
+
+3. **`import_logs`** - 導入記錄
+   - 追蹤檔案導入狀況，防止重複導入
+
+### 主要檢視
+
+1. **`v_weather_main`** - 統一主檢視
+   - 包含所有要求的欄位資訊
+
+2. **`v_daily_summary`** - 日統計摘要
+   - 按日期匯總的統計資訊
+
+3. **`v_monthly_summary`** - 月統計摘要
+   - 按月份匯總的統計資訊
+
+## ⚙️ 設定參數
+
+### 資料庫連線設定
+
+```python
+# 預設設定
+db_config = {
+    'host': 'localhost',
+    'port': 3306,
+    'database': 'weather_data',
+    'username': 'root',
+    'password': ''
+}
+
+# 自定義設定
+read_file('data.xlsx', host='192.168.1.100', password='mypassword')
+```
+
+### 設備 ID 設定
+
+```python
+# 預設設備 ID = 1
+read_file('data.xlsx')
+
+# 指定設備 ID
+read_file('data.xlsx', device_id=2)
+```
+
+## 🐛 故障排除
 
 ### 常見問題
 
-**Q: Excel檔案導入失敗**
+1. **無法連接到資料庫**
+   ```
+   ❌ 無法連線到資料庫: Access denied for user 'root'@'localhost'
+   ```
+   - 檢查 MySQL 服務是否運行
+   - 確認使用者名稱和密碼正確
+   - 檢查資料庫權限設定
+
+2. **檔案格式無法識別**
+   ```
+   ⚠️ 內容偵測失敗: Excel file format cannot be determined
+   ```
+   - 確認檔案不是損毀的
+   - 檢查檔案是否為有效的 Excel 格式
+   - 嘗試手動指定格式
+
+3. **找不到表頭行**
+   ```
+   ❌ GL860 格式解析失敗: 在工作表 Modify 中找不到表頭行
+   ```
+   - 檢查 Excel 檔案的工作表結構
+   - 確認包含 "NO." 和 "Time" 欄位
+
+### 日誌檢查
+
+系統會產生詳細的日誌檔案：
+- `unified_weather_import.log` - 主要日誌檔案
+- 包含完整的導入過程和錯誤資訊
+
+### 手動檢查數據
+
+```sql
+-- 檢查導入記錄
+SELECT * FROM import_logs ORDER BY import_time DESC LIMIT 10;
+
+-- 檢查數據統計
+SELECT 
+    COUNT(*) as total_records,
+    MIN(measurement_time) as earliest_date,
+    MAX(measurement_time) as latest_date,
+    COUNT(DISTINCT DATE(measurement_time)) as total_days
+FROM weather_raw_data;
+
+-- 檢查數據品質
+SELECT * FROM v_data_quality_check 
+WHERE data_status != '數據完整'
+ORDER BY date DESC;
 ```
-A: 檢查檔案格式是否正確，確認工作表名稱符合預期
-   檢查日誌: tail -f weather_import.log
-```
 
-**Q: 資料庫連接失敗**
-```
-A: 確認MySQL服務運行中，檢查config.ini中的連接參數
-   測試連接: mysql -h localhost -u root -p weather_data
-```
+## 📞 技術支援
 
-**Q: 自動導入不工作**
-```
-A: 檢查data目錄權限，確認排程器正在運行
-   手動測試: python automated_maintenance.py --action import
-```
+如遇到技術問題，請提供以下資訊：
+1. 錯誤訊息的完整內容
+2. `unified_weather_import.log` 日誌檔案
+3. Excel 檔案的檔名和大概結構
+4. MySQL 版本和連線設定
 
-**Q: 郵件通知不工作**
-```
-A: 檢查SMTP設置，確認用戶名密碼正確
-   Gmail需要使用應用程式密碼，不是登錄密碼
-```
+## 📄 授權
 
-## 📈 最佳實踐
-
-1. **定期備份**: 建議每日備份資料庫
-2. **監控磁碟空間**: 確保有足夠空間存放數據和備份
-3. **日誌輪轉**: 定期清理或壓縮舊日誌檔案
-4. **數據驗證**: 定期檢查導入數據的完整性
-5. **性能優化**: 根據數據量增長適時添加索引
-
-## 📞 支援
-
-如遇到問題，請檢查：
-1. 日誌檔案中的錯誤信息
-2. MySQL錯誤日誌
-3. Python套件版本兼容性
-4. 系統資源使用情況
-
-## 📝 版本歷史
-
-- **v1.0.0**: 初版發布，支持基本導入和維護功能
-- 支持GL860 Excel檔案解析
-- 自動化導入和備份
-- 郵件通知功能
-- 統計報告生成
+本專案採用 MIT 授權條款。
 
 ---
 
-© 2024 GL860氣象數據管理系統。本系統專為GRAPHTEC GL860氣象記錄器設計。
+🎉 **恭喜！你現在可以開始使用統一氣象數據導入系統了！**
+
+記住關鍵的使用方式：
+```python
+from unified_weather_importer import read_file
+
+# 就是這麼簡單！
+read_file('你的檔案名稱.xlsx')
