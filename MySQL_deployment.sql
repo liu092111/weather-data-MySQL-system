@@ -1,5 +1,17 @@
 -- GL860 天氣資料查詢範例
 -- 資料表名稱: gl860_weather_data
+-- 
+-- 資料表結構說明：
+-- - record_time: 每筆記錄的完整時間戳記 (DATETIME)
+-- - record_date: 當天日期，只在每天第一筆記錄有值 (DATE, 格式: 2025-07-01)
+-- - 每日統計欄位 (daily_avg_*, daily_max_*, daily_min_* 等) 也只在每天第一筆有值
+-- 
+-- Channel 定義：
+-- - Channel 1: 溫度 (degC)
+-- - Channel 2: 濕度 (%)
+-- - Channel 3: 照度 LUX (lux)
+-- - Channel 4: UV USA/Apogee (W/m²)
+-- - Channel 5: UV Ref (W/m²)
 
 -- 選擇資料庫
 USE weather_data;
@@ -10,7 +22,7 @@ USE weather_data;
 
 -- 查詢特定月份的所有資料
 SELECT * FROM gl860_weather_data 
-WHERE year = 2025 AND month = 8 
+WHERE year = 2025 AND month = 11 
 ORDER BY record_time
 LIMIT 100;
 
@@ -32,15 +44,16 @@ ORDER BY year, month;
 -- 2. 統計分析
 -- ============================================
 
--- 查詢每日平均值
+-- 查詢每日平均值（所有5個channel）
 SELECT 
     DATE(record_time) as date,
     AVG(channel1_temperature) as avg_temp,
     AVG(channel2_humidity) as avg_humidity,
-    AVG(channel3_uv) as avg_uv,
-    AVG(channel4_lux) as avg_lux
+    AVG(channel3_lux) as avg_lux,
+    AVG(channel4_uv_usa) as avg_uv_usa,
+    AVG(channel5_uv_ref) as avg_uv_ref
 FROM gl860_weather_data
-WHERE year = 2025 AND month = 8
+WHERE year = 2025 AND month = 11
 GROUP BY DATE(record_time)
 ORDER BY date;
 
@@ -51,10 +64,11 @@ SELECT
     MIN(channel1_temperature) as min_temp,
     MAX(channel2_humidity) as max_humidity,
     MIN(channel2_humidity) as min_humidity,
-    MAX(channel3_uv) as max_uv,
-    MAX(channel4_lux) as max_lux
+    MAX(channel3_lux) as max_lux,
+    MAX(channel4_uv_usa) as max_uv_usa,
+    MAX(channel5_uv_ref) as max_uv_ref
 FROM gl860_weather_data
-WHERE year = 2025 AND month = 8
+WHERE year = 2025 AND month = 11
 GROUP BY DATE(record_time)
 ORDER BY date;
 
@@ -68,9 +82,12 @@ SELECT
     MIN(channel1_temperature) as min_temp,
     AVG(channel2_humidity) as avg_humidity,
     MAX(channel2_humidity) as max_humidity,
-    MIN(channel2_humidity) as min_humidity
+    MIN(channel2_humidity) as min_humidity,
+    AVG(channel3_lux) as avg_lux,
+    AVG(channel4_uv_usa) as avg_uv_usa,
+    AVG(channel5_uv_ref) as avg_uv_ref
 FROM gl860_weather_data
-WHERE year = 2025 AND month = 8
+WHERE year = 2025 AND month = 11
 GROUP BY year, month;
 
 -- ============================================
@@ -80,7 +97,7 @@ GROUP BY year, month;
 -- 查詢特定時段的資料（例如：每天 12:00-14:00）
 SELECT * FROM gl860_weather_data
 WHERE HOUR(record_time) BETWEEN 12 AND 14
-  AND year = 2025 AND month = 8
+  AND year = 2025 AND month = 11
 ORDER BY record_time;
 
 -- 查詢各小時的平均溫度
@@ -89,7 +106,7 @@ SELECT
     AVG(channel1_temperature) as avg_temp,
     COUNT(*) as record_count
 FROM gl860_weather_data
-WHERE year = 2025 AND month = 8
+WHERE year = 2025 AND month = 11
 GROUP BY HOUR(record_time)
 ORDER BY hour;
 
@@ -101,9 +118,12 @@ SELECT
     END as time_period,
     AVG(channel1_temperature) as avg_temp,
     AVG(channel2_humidity) as avg_humidity,
+    AVG(channel3_lux) as avg_lux,
+    AVG(channel4_uv_usa) as avg_uv_usa,
+    AVG(channel5_uv_ref) as avg_uv_ref,
     COUNT(*) as record_count
 FROM gl860_weather_data
-WHERE year = 2025 AND month = 8
+WHERE year = 2025 AND month = 11
 GROUP BY 
     CASE 
         WHEN HOUR(record_time) BETWEEN 6 AND 17 THEN '白天'
@@ -119,28 +139,30 @@ SELECT * FROM gl860_weather_data
 WHERE channel1_temperature = (
     SELECT MAX(channel1_temperature) 
     FROM gl860_weather_data 
-    WHERE year = 2025 AND month = 8
+    WHERE year = 2025 AND month = 11
 )
-AND year = 2025 AND month = 8;
+AND year = 2025 AND month = 11;
 
 -- 查詢最低溫度的記錄
 SELECT * FROM gl860_weather_data
 WHERE channel1_temperature = (
     SELECT MIN(channel1_temperature) 
     FROM gl860_weather_data 
-    WHERE year = 2025 AND month = 8
+    WHERE year = 2025 AND month = 11
 )
-AND year = 2025 AND month = 8;
+AND year = 2025 AND month = 11;
 
 -- 查詢溫度超過 35°C 的記錄
 SELECT 
     record_time,
     channel1_temperature,
     channel2_humidity,
-    channel5_device_temp
+    channel3_lux,
+    channel4_uv_usa,
+    channel5_uv_ref
 FROM gl860_weather_data
 WHERE channel1_temperature > 35
-  AND year = 2025 AND month = 8
+  AND year = 2025 AND month = 11
 ORDER BY channel1_temperature DESC;
 
 -- 查詢濕度超過 95% 的記錄
@@ -150,45 +172,61 @@ SELECT
     channel2_humidity
 FROM gl860_weather_data
 WHERE channel2_humidity > 95
-  AND year = 2025 AND month = 8
+  AND year = 2025 AND month = 11
 ORDER BY channel2_humidity DESC;
 
 -- ============================================
 -- 5. UV 和光照分析
 -- ============================================
 
--- 查詢有 UV 資料的記錄統計
+-- 查詢每日UV和照度統計
 SELECT 
     DATE(record_time) as date,
     COUNT(*) as total_records,
-    SUM(CASE WHEN channel3_uv IS NOT NULL THEN 1 ELSE 0 END) as uv_records,
-    AVG(channel3_uv) as avg_uv,
-    MAX(channel3_uv) as max_uv
+    AVG(channel3_lux) as avg_lux,
+    MAX(channel3_lux) as max_lux,
+    AVG(channel4_uv_usa) as avg_uv_usa,
+    MAX(channel4_uv_usa) as max_uv_usa,
+    AVG(channel5_uv_ref) as avg_uv_ref,
+    MAX(channel5_uv_ref) as max_uv_ref
 FROM gl860_weather_data
-WHERE year = 2025 AND month = 8
+WHERE year = 2025 AND month = 11
 GROUP BY DATE(record_time)
 ORDER BY date;
 
--- 查詢高 UV 時段（UV > 0.8）
+-- 查詢高 UV 時段（UV USA > 1.0）
 SELECT 
     record_time,
-    channel3_uv,
+    channel4_uv_usa,
+    channel5_uv_ref,
     channel1_temperature,
-    channel4_lux
+    channel3_lux
 FROM gl860_weather_data
-WHERE channel3_uv > 0.8
-  AND year = 2025 AND month = 8
-ORDER BY channel3_uv DESC;
+WHERE channel4_uv_usa > 1.0
+  AND year = 2025 AND month = 11
+ORDER BY channel4_uv_usa DESC;
 
--- 查詢光照度統計（有資料的記錄）
+-- 比較 UV USA vs UV Ref 的差異
 SELECT 
     DATE(record_time) as date,
-    AVG(channel4_lux) as avg_lux,
-    MAX(channel4_lux) as max_lux,
-    COUNT(channel4_lux) as lux_record_count
+    AVG(channel4_uv_usa) as avg_uv_usa,
+    AVG(channel5_uv_ref) as avg_uv_ref,
+    AVG(channel4_uv_usa) - AVG(channel5_uv_ref) as uv_diff
 FROM gl860_weather_data
-WHERE channel4_lux IS NOT NULL
-  AND year = 2025 AND month = 8
+WHERE year = 2025 AND month = 11
+GROUP BY DATE(record_time)
+ORDER BY date;
+
+-- 查詢光照度統計（白天時段）
+SELECT 
+    DATE(record_time) as date,
+    AVG(channel3_lux) as avg_lux,
+    MAX(channel3_lux) as max_lux,
+    MIN(channel3_lux) as min_lux,
+    COUNT(*) as record_count
+FROM gl860_weather_data
+WHERE HOUR(record_time) BETWEEN 6 AND 18
+  AND year = 2025 AND month = 11
 GROUP BY DATE(record_time)
 ORDER BY date;
 
@@ -201,30 +239,30 @@ SELECT
     COUNT(*) as total_records,
     SUM(CASE WHEN channel1_temperature IS NOT NULL THEN 1 ELSE 0 END) as temp_count,
     SUM(CASE WHEN channel2_humidity IS NOT NULL THEN 1 ELSE 0 END) as humidity_count,
-    SUM(CASE WHEN channel3_uv IS NOT NULL THEN 1 ELSE 0 END) as uv_count,
-    SUM(CASE WHEN channel4_lux IS NOT NULL THEN 1 ELSE 0 END) as lux_count,
-    SUM(CASE WHEN channel5_device_temp IS NOT NULL THEN 1 ELSE 0 END) as device_temp_count,
+    SUM(CASE WHEN channel3_lux IS NOT NULL THEN 1 ELSE 0 END) as lux_count,
+    SUM(CASE WHEN channel4_uv_usa IS NOT NULL THEN 1 ELSE 0 END) as uv_usa_count,
+    SUM(CASE WHEN channel5_uv_ref IS NOT NULL THEN 1 ELSE 0 END) as uv_ref_count,
     ROUND(SUM(CASE WHEN channel1_temperature IS NOT NULL THEN 1 ELSE 0 END) / COUNT(*) * 100, 2) as temp_percentage,
-    ROUND(SUM(CASE WHEN channel3_uv IS NOT NULL THEN 1 ELSE 0 END) / COUNT(*) * 100, 2) as uv_percentage,
-    ROUND(SUM(CASE WHEN channel4_lux IS NOT NULL THEN 1 ELSE 0 END) / COUNT(*) * 100, 2) as lux_percentage
+    ROUND(SUM(CASE WHEN channel3_lux IS NOT NULL THEN 1 ELSE 0 END) / COUNT(*) * 100, 2) as lux_percentage,
+    ROUND(SUM(CASE WHEN channel4_uv_usa IS NOT NULL THEN 1 ELSE 0 END) / COUNT(*) * 100, 2) as uv_usa_percentage
 FROM gl860_weather_data
-WHERE year = 2025 AND month = 8;
+WHERE year = 2025 AND month = 11;
 
 -- 查詢缺失資料的記錄
 SELECT 
     record_time,
     CASE WHEN channel1_temperature IS NULL THEN '缺' ELSE '有' END as temp,
     CASE WHEN channel2_humidity IS NULL THEN '缺' ELSE '有' END as humidity,
-    CASE WHEN channel3_uv IS NULL THEN '缺' ELSE '有' END as uv,
-    CASE WHEN channel4_lux IS NULL THEN '缺' ELSE '有' END as lux,
-    CASE WHEN channel5_device_temp IS NULL THEN '缺' ELSE '有' END as device_temp
+    CASE WHEN channel3_lux IS NULL THEN '缺' ELSE '有' END as lux,
+    CASE WHEN channel4_uv_usa IS NULL THEN '缺' ELSE '有' END as uv_usa,
+    CASE WHEN channel5_uv_ref IS NULL THEN '缺' ELSE '有' END as uv_ref
 FROM gl860_weather_data
 WHERE (channel1_temperature IS NULL 
     OR channel2_humidity IS NULL
-    OR channel3_uv IS NULL
-    OR channel4_lux IS NULL
-    OR channel5_device_temp IS NULL)
-  AND year = 2025 AND month = 8
+    OR channel3_lux IS NULL
+    OR channel4_uv_usa IS NULL
+    OR channel5_uv_ref IS NULL)
+  AND year = 2025 AND month = 11
 ORDER BY record_time
 LIMIT 50;
 
@@ -238,7 +276,7 @@ SELECT
     FLOOR(channel2_humidity / 10) * 10 as humidity_range,
     COUNT(*) as count
 FROM gl860_weather_data
-WHERE year = 2025 AND month = 8
+WHERE year = 2025 AND month = 11
 GROUP BY 
     FLOOR(channel1_temperature / 5),
     FLOOR(channel2_humidity / 10)
@@ -256,9 +294,9 @@ SELECT
         ELSE '其他'
     END as comfort_level,
     COUNT(*) as record_count,
-    ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM gl860_weather_data WHERE year = 2025 AND month = 8), 2) as percentage
+    ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM gl860_weather_data WHERE year = 2025 AND month = 11), 2) as percentage
 FROM gl860_weather_data
-WHERE year = 2025 AND month = 8
+WHERE year = 2025 AND month = 11
 GROUP BY 
     CASE 
         WHEN channel1_temperature BETWEEN 20 AND 28 
@@ -282,7 +320,7 @@ SELECT
     MAX(channel1_temperature) as max_temp,
     MAX(channel1_temperature) - MIN(channel1_temperature) as temp_range
 FROM gl860_weather_data
-WHERE year = 2025 AND month = 8
+WHERE year = 2025 AND month = 11
 GROUP BY DATE(record_time)
 ORDER BY date;
 
@@ -294,9 +332,12 @@ SELECT
     END as day_type,
     AVG(channel1_temperature) as avg_temp,
     AVG(channel2_humidity) as avg_humidity,
+    AVG(channel3_lux) as avg_lux,
+    AVG(channel4_uv_usa) as avg_uv_usa,
+    AVG(channel5_uv_ref) as avg_uv_ref,
     COUNT(*) as record_count
 FROM gl860_weather_data
-WHERE year = 2025 AND month = 8
+WHERE year = 2025 AND month = 11
 GROUP BY 
     CASE 
         WHEN DAYOFWEEK(record_time) IN (1, 7) THEN '週末'
@@ -314,11 +355,11 @@ SELECT
     DATE_FORMAT(record_time, '%Y-%m-%d %H:%i:%s') as '記錄時間',
     channel1_temperature as '溫度(°C)',
     channel2_humidity as '濕度(%)',
-    channel3_uv as 'UV(W/m²)',
-    channel4_lux as '照度(lux)',
-    channel5_device_temp as '設備溫度(°C)'
+    channel3_lux as '照度(lux)',
+    channel4_uv_usa as 'UV_USA(W/m²)',
+    channel5_uv_ref as 'UV_Ref(W/m²)'
 FROM gl860_weather_data
-WHERE year = 2025 AND month = 8
+WHERE year = 2025 AND month = 11
 ORDER BY record_time;
 
 -- 匯出每日統計摘要
@@ -331,9 +372,144 @@ SELECT
     ROUND(AVG(channel2_humidity), 2) as '平均濕度',
     ROUND(MAX(channel2_humidity), 2) as '最高濕度',
     ROUND(MIN(channel2_humidity), 2) as '最低濕度',
-    ROUND(AVG(channel3_uv), 2) as '平均UV',
-    ROUND(MAX(channel4_lux), 2) as '最高照度'
+    ROUND(AVG(channel3_lux), 2) as '平均照度',
+    ROUND(AVG(channel4_uv_usa), 2) as '平均UV_USA',
+    ROUND(AVG(channel5_uv_ref), 2) as '平均UV_Ref'
 FROM gl860_weather_data
-WHERE year = 2025 AND month = 8
+WHERE year = 2025 AND month = 11
 GROUP BY DATE(record_time)
 ORDER BY DATE(record_time);
+
+-- ============================================
+-- 10. record_date 日期欄位查詢
+-- ============================================
+
+-- 說明：record_date 欄位只在每天第一筆記錄中有值
+-- 格式為 DATE 類型 (例如: 2025-07-01)，不包含時間
+-- 每日統計欄位包含所有5個channel的平均值
+
+-- 查詢所有有 record_date 的記錄（即每天的第一筆）
+SELECT 
+    record_date as '日期',
+    record_time as '記錄時間',
+    channel1_temperature as '溫度',
+    channel2_humidity as '濕度',
+    daily_avg_temperature as '日均溫',
+    daily_avg_humidity as '日均濕度',
+    daily_avg_lux as '日均照度',
+    daily_avg_uv_usa as '日均UV_USA',
+    daily_avg_uv_ref as '日均UV_Ref',
+    daily_max_temperature as '日最高溫',
+    daily_min_temperature as '日最低溫',
+    daily_record_count as '當日原始筆數'
+FROM gl860_weather_data
+WHERE record_date IS NOT NULL
+ORDER BY record_date DESC
+LIMIT 10;
+
+-- 使用 record_date 查詢特定日期的統計資料
+SELECT 
+    record_date,
+    daily_avg_temperature,
+    daily_avg_humidity,
+    daily_avg_lux,
+    daily_avg_uv_usa,
+    daily_avg_uv_ref,
+    daily_max_temperature,
+    daily_min_temperature,
+    daily_temperature_delta,
+    daily_record_count
+FROM gl860_weather_data
+WHERE record_date BETWEEN '2025-11-01' AND '2025-11-30'
+ORDER BY record_date;
+
+-- 統計每月有多少天有資料
+SELECT 
+    year,
+    month,
+    COUNT(record_date) as '天數'
+FROM gl860_weather_data
+WHERE record_date IS NOT NULL
+GROUP BY year, month
+ORDER BY year, month;
+
+-- 查詢特定日期範圍的每日統計（使用 record_date）
+SELECT 
+    record_date as '日期',
+    daily_avg_temperature as '均溫(°C)',
+    daily_avg_humidity as '均濕(%)',
+    daily_avg_lux as '均照度(lux)',
+    daily_avg_uv_usa as '均UV_USA(W/m²)',
+    daily_avg_uv_ref as '均UV_Ref(W/m²)',
+    daily_max_temperature as '最高溫(°C)',
+    daily_min_temperature as '最低溫(°C)',
+    daily_temperature_delta as '溫差(°C)',
+    daily_record_count as '原始記錄數'
+FROM gl860_weather_data
+WHERE record_date IS NOT NULL
+  AND year = 2025
+ORDER BY record_date;
+
+-- ============================================
+-- 11. 五個Channel的完整統計比較
+-- ============================================
+
+-- 各Channel的整體統計
+SELECT 
+    'Channel 1 (溫度)' as channel_name,
+    COUNT(channel1_temperature) as data_count,
+    ROUND(AVG(channel1_temperature), 2) as avg_value,
+    ROUND(MAX(channel1_temperature), 2) as max_value,
+    ROUND(MIN(channel1_temperature), 2) as min_value,
+    'degC' as unit
+FROM gl860_weather_data WHERE year = 2025
+UNION ALL
+SELECT 
+    'Channel 2 (濕度)' as channel_name,
+    COUNT(channel2_humidity),
+    ROUND(AVG(channel2_humidity), 2),
+    ROUND(MAX(channel2_humidity), 2),
+    ROUND(MIN(channel2_humidity), 2),
+    '%'
+FROM gl860_weather_data WHERE year = 2025
+UNION ALL
+SELECT 
+    'Channel 3 (照度)' as channel_name,
+    COUNT(channel3_lux),
+    ROUND(AVG(channel3_lux), 2),
+    ROUND(MAX(channel3_lux), 2),
+    ROUND(MIN(channel3_lux), 2),
+    'lux'
+FROM gl860_weather_data WHERE year = 2025
+UNION ALL
+SELECT 
+    'Channel 4 (UV USA)' as channel_name,
+    COUNT(channel4_uv_usa),
+    ROUND(AVG(channel4_uv_usa), 2),
+    ROUND(MAX(channel4_uv_usa), 2),
+    ROUND(MIN(channel4_uv_usa), 2),
+    'W/m²'
+FROM gl860_weather_data WHERE year = 2025
+UNION ALL
+SELECT 
+    'Channel 5 (UV Ref)' as channel_name,
+    COUNT(channel5_uv_ref),
+    ROUND(AVG(channel5_uv_ref), 2),
+    ROUND(MAX(channel5_uv_ref), 2),
+    ROUND(MIN(channel5_uv_ref), 2),
+    'W/m²'
+FROM gl860_weather_data WHERE year = 2025;
+
+-- 每日五個Channel的平均值比較（使用預先計算的統計）
+SELECT 
+    record_date as '日期',
+    daily_avg_temperature as '溫度(°C)',
+    daily_avg_humidity as '濕度(%)',
+    daily_avg_lux as '照度(lux)',
+    daily_avg_uv_usa as 'UV_USA(W/m²)',
+    daily_avg_uv_ref as 'UV_Ref(W/m²)',
+    daily_record_count as '原始記錄數(分鐘)'
+FROM gl860_weather_data
+WHERE record_date IS NOT NULL
+  AND year = 2025 AND month = 11
+ORDER BY record_date;

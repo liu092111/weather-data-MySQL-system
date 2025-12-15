@@ -4,6 +4,7 @@ from mysql.connector import Error
 import os
 from datetime import datetime
 import glob
+import numpy as np
 
 class GL860DataImporter:
     def __init__(self, host='localhost', database='weather_data', user='root', password=''):
@@ -28,7 +29,6 @@ class GL860DataImporter:
                 return True
         except Error as e:
             print(f"連接錯誤: {e}")
-            # 如果資料庫不存在，嘗試創建
             try:
                 connection = mysql.connector.connect(
                     host=self.host,
@@ -45,55 +45,208 @@ class GL860DataImporter:
                 return False
     
     def create_table(self):
-        """創建天氣資料表"""
+        """創建天氣資料表（包含GL860 + COAI + Daily統計）"""
         if not self.connection:
             print("請先建立資料庫連接")
             return False
         
+        # 先刪除舊表和舊View
+        drop_statements = [
+            "DROP VIEW IF EXISTS v_gl860_complete_data",
+            "DROP TABLE IF EXISTS gl860_weather_data",
+            "DROP TABLE IF EXISTS coai_weather_data"
+        ]
+        
+        # 欄位順序：基本資訊 → Channel 1-5 → COAI → Daily統計
         create_table_query = """
         CREATE TABLE IF NOT EXISTS gl860_weather_data (
             id INT AUTO_INCREMENT PRIMARY KEY,
             year INT NOT NULL,
             month INT NOT NULL,
+            date INT,
+            record_date DATE,
             record_time DATETIME NOT NULL,
             channel1_temperature DECIMAL(10, 2),
             channel2_humidity DECIMAL(10, 2),
-            channel3_uv DECIMAL(10, 2),
-            channel4_lux DECIMAL(10, 2),
-            channel5_device_temp DECIMAL(10, 2),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            channel3_lux DECIMAL(10, 2),
+            channel4_uv_usa DECIMAL(10, 2),
+            channel5_uv_ref DECIMAL(10, 2),
+            coai_temperature DECIMAL(10, 2),
+            coai_humidity DECIMAL(10, 2),
+            coai_rainfall VARCHAR(20),
+            daily_avg_temperature DECIMAL(10, 2),
+            daily_avg_humidity DECIMAL(10, 2),
+            daily_avg_lux DECIMAL(10, 2),
+            daily_avg_uv_usa DECIMAL(10, 2),
+            daily_avg_uv_ref DECIMAL(10, 2),
+            daily_max_temperature DECIMAL(10, 2),
+            daily_max_humidity DECIMAL(10, 2),
+            daily_max_lux DECIMAL(10, 2),
+            daily_max_uv_usa DECIMAL(10, 2),
+            daily_max_uv_ref DECIMAL(10, 2),
+            daily_min_temperature DECIMAL(10, 2),
+            daily_min_humidity DECIMAL(10, 2),
+            daily_min_lux DECIMAL(10, 2),
+            daily_min_uv_usa DECIMAL(10, 2),
+            daily_min_uv_ref DECIMAL(10, 2),
+            daily_temperature_delta DECIMAL(10, 2),
+            daily_humidity_delta DECIMAL(10, 2),
+            daily_record_count INT,
             INDEX idx_year_month (year, month),
-            INDEX idx_record_time (record_time)
+            INDEX idx_record_time (record_time),
+            INDEX idx_record_date (record_date)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """
+        
+        create_coai_table_query = """
+        CREATE TABLE IF NOT EXISTS coai_weather_data (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            year INT NOT NULL,
+            month INT NOT NULL,
+            obs_date DATE NOT NULL,
+            temperature DECIMAL(10, 2),
+            humidity DECIMAL(10, 2),
+            wind_speed DECIMAL(10, 2),
+            wind_direction DECIMAL(10, 2),
+            wind_gust DECIMAL(10, 2),
+            rainfall DECIMAL(10, 2),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY idx_obs_date (obs_date),
+            INDEX idx_year_month (year, month)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """
+        
+        create_view_query = """
+        CREATE VIEW v_gl860_complete_data AS
+        SELECT id, year, month, CAST(record_time AS DATE) AS date, record_time,
+            channel1_temperature AS temperature, channel2_humidity AS humidity,
+            channel3_lux AS lux, channel4_uv_usa AS uv_usa, channel5_uv_ref AS uv_ref,
+            coai_temperature, coai_humidity, coai_rainfall,
+            daily_avg_temperature, daily_avg_humidity, daily_avg_lux,
+            daily_avg_uv_usa, daily_avg_uv_ref, daily_record_count
+        FROM gl860_weather_data
         """
         
         try:
             cursor = self.connection.cursor()
+            for stmt in drop_statements:
+                cursor.execute(stmt)
             cursor.execute(create_table_query)
+            print("GL860資料表創建成功")
+            cursor.execute(create_coai_table_query)
+            print("COAI資料表創建成功")
+            cursor.execute(create_view_query)
+            print("View創建成功")
             self.connection.commit()
-            print("資料表創建成功或已存在")
             return True
         except Error as e:
             print(f"創建資料表錯誤: {e}")
             return False
     
     def extract_year_month_from_filename(self, filename):
-        """從檔名提取年份和月份
-        例如: GL860 RAWDATA_2508.xlsx -> year=2025, month=8
-        """
         basename = os.path.basename(filename)
-        # 提取 YYMM 格式
         parts = basename.split('_')
         if len(parts) >= 2:
             yymm = parts[1].replace('.xlsx', '')
             if len(yymm) == 4:
-                year = 2000 + int(yymm[:2])  # 25 -> 2025
-                month = int(yymm[2:])         # 08 -> 8
-                return year, month
+                return 2000 + int(yymm[:2]), int(yymm[2:])
         return None, None
     
+    def convert_to_python_type(self, value):
+        if value is None or pd.isna(value):
+            return None
+        if isinstance(value, (np.integer, np.int64)):
+            return int(value)
+        if isinstance(value, (np.floating, np.float64)):
+            return float(value)
+        return value
+    
+    def calculate_daily_statistics(self, all_records_df):
+        daily_stats = {}
+        all_records_df['date'] = pd.to_datetime(all_records_df['record_time']).dt.date
+        
+        for date, group in all_records_df.groupby('date'):
+            stats = {
+                'daily_avg_temperature': group['channel1_temperature'].mean() if group['channel1_temperature'].notna().any() else None,
+                'daily_max_temperature': group['channel1_temperature'].max() if group['channel1_temperature'].notna().any() else None,
+                'daily_min_temperature': group['channel1_temperature'].min() if group['channel1_temperature'].notna().any() else None,
+                'daily_avg_humidity': group['channel2_humidity'].mean() if group['channel2_humidity'].notna().any() else None,
+                'daily_max_humidity': group['channel2_humidity'].max() if group['channel2_humidity'].notna().any() else None,
+                'daily_min_humidity': group['channel2_humidity'].min() if group['channel2_humidity'].notna().any() else None,
+                'daily_avg_lux': group['channel3_lux'].mean() if group['channel3_lux'].notna().any() else None,
+                'daily_max_lux': group['channel3_lux'].max() if group['channel3_lux'].notna().any() else None,
+                'daily_min_lux': group['channel3_lux'].min() if group['channel3_lux'].notna().any() else None,
+                'daily_avg_uv_usa': group['channel4_uv_usa'].mean() if group['channel4_uv_usa'].notna().any() else None,
+                'daily_max_uv_usa': group['channel4_uv_usa'].max() if group['channel4_uv_usa'].notna().any() else None,
+                'daily_min_uv_usa': group['channel4_uv_usa'].min() if group['channel4_uv_usa'].notna().any() else None,
+                'daily_avg_uv_ref': group['channel5_uv_ref'].mean() if group['channel5_uv_ref'].notna().any() else None,
+                'daily_max_uv_ref': group['channel5_uv_ref'].max() if group['channel5_uv_ref'].notna().any() else None,
+                'daily_min_uv_ref': group['channel5_uv_ref'].min() if group['channel5_uv_ref'].notna().any() else None,
+                'daily_record_count': len(group)
+            }
+            
+            if stats['daily_max_temperature'] is not None and stats['daily_min_temperature'] is not None:
+                stats['daily_temperature_delta'] = stats['daily_max_temperature'] - stats['daily_min_temperature']
+            else:
+                stats['daily_temperature_delta'] = None
+            
+            if stats['daily_max_humidity'] is not None and stats['daily_min_humidity'] is not None:
+                stats['daily_humidity_delta'] = stats['daily_max_humidity'] - stats['daily_min_humidity']
+            else:
+                stats['daily_humidity_delta'] = None
+            
+            for key in stats:
+                if stats[key] is not None and key != 'daily_record_count':
+                    stats[key] = round(float(stats[key]), 2)
+            
+            daily_stats[date] = stats
+        
+        return daily_stats
+    
+    def sample_records_30min(self, all_records_df, daily_stats):
+        sampled_records = []
+        all_records_df['record_time'] = pd.to_datetime(all_records_df['record_time'])
+        all_records_df['date'] = all_records_df['record_time'].dt.date
+        
+        for date, group in all_records_df.groupby('date'):
+            group = group.sort_values('record_time')
+            stats = daily_stats.get(date, {})
+            group['time_30min'] = group['record_time'].dt.floor('30min')
+            
+            for time_slot, slot_group in group.groupby('time_30min'):
+                first_record = slot_group.iloc[0]
+                
+                record = {
+                    'year': self.convert_to_python_type(first_record['year']),
+                    'month': self.convert_to_python_type(first_record['month']),
+                    'date': date.day,
+                    'record_time': first_record['record_time'].to_pydatetime(),
+                    'channel1_temperature': self.convert_to_python_type(first_record['channel1_temperature']),
+                    'channel2_humidity': self.convert_to_python_type(first_record['channel2_humidity']),
+                    'channel3_lux': self.convert_to_python_type(first_record['channel3_lux']),
+                    'channel4_uv_usa': self.convert_to_python_type(first_record['channel4_uv_usa']),
+                    'channel5_uv_ref': self.convert_to_python_type(first_record['channel5_uv_ref'])
+                }
+                
+                if first_record['record_time'] == group['record_time'].min():
+                    record['record_date'] = date
+                    for key, value in stats.items():
+                        record[key] = self.convert_to_python_type(value)
+                else:
+                    record['record_date'] = None
+                    for key in ['daily_avg_temperature', 'daily_avg_humidity', 'daily_avg_lux', 
+                               'daily_avg_uv_usa', 'daily_avg_uv_ref', 'daily_max_temperature',
+                               'daily_max_humidity', 'daily_max_lux', 'daily_max_uv_usa', 'daily_max_uv_ref',
+                               'daily_min_temperature', 'daily_min_humidity', 'daily_min_lux',
+                               'daily_min_uv_usa', 'daily_min_uv_ref', 'daily_temperature_delta',
+                               'daily_humidity_delta', 'daily_record_count']:
+                        record[key] = None
+                
+                sampled_records.append(record)
+        
+        return sampled_records
+    
     def parse_excel_file(self, filepath):
-        """解析 Excel 檔案"""
         year, month = self.extract_year_month_from_filename(filepath)
         if not year or not month:
             print(f"無法從檔名提取年月: {filepath}")
@@ -103,10 +256,7 @@ class GL860DataImporter:
         print(f"年份: {year}, 月份: {month}")
         
         try:
-            # 讀取第一個 sheet（通常是 YYMM 格式的 sheet name）
             df = pd.read_excel(filepath, sheet_name=0, header=None)
-            
-            # 找到 "Data" 標記的位置
             data_row = None
             for idx, row in df.iterrows():
                 if row[0] == 'Data':
@@ -117,284 +267,303 @@ class GL860DataImporter:
                 print("找不到資料區域")
                 return None
             
-            print(f"找到 Data 標記在第 {data_row} 行")
-            
-            # 讀取資料，跳過標題行
-            # Data 標記後的第 1 行是欄位名稱（Number, Date&Time, CH1...）
-            # Data 標記後的第 2 行是單位（NO., Time, degC, %, W/m2, lux, degC）
-            # 實際資料從第 3 行開始
-            # 直接從 Data 行之後讀取，使用第一行作為 header
-            df_data = pd.read_excel(
-                filepath, 
-                sheet_name=0,
-                skiprows=data_row + 2  # 跳過 Data 行和欄位名稱行，從單位行開始
-            )
-            
-            print(f"讀取到的欄位: {df_data.columns.tolist()}")
-            print(f"前 3 筆資料:\n{df_data.head(3)}")
-            
-            # 準備資料
-            records = []
-            
-            # 找到日期時間和通道欄位
-            # 根據欄位順序和名稱識別各通道
+            df_data = pd.read_excel(filepath, sheet_name=0, skiprows=data_row + 2)
             date_col = None
             ch_cols = {}
-            
-            # 找出非 NO. 和 Time 的資料欄位
             data_columns = []
+            
             for col in df_data.columns:
                 col_str = str(col).strip()
-                if 'time' in col_str.lower() or '時間' in col_str:
+                if 'time' in col_str.lower():
                     date_col = col
                 elif col_str not in ['NO.', 'Number'] and not col_str.startswith('Unnamed'):
                     data_columns.append(col)
             
-            # 根據欄位名稱和順序映射到通道
-            # 需要智能識別：有些檔案只有3個通道，有些有5個或更多
-            # 標準順序應該是：degC(溫度), %(濕度), W/m2(UV), lux(照度), 設備溫度
-            
-            # 先統計有多少個 degC 欄位
-            degc_columns = [col for col in data_columns if 'degc' in str(col).lower()]
-            
-            for i, col in enumerate(data_columns):
+            for col in data_columns:
                 col_str = str(col)
                 col_lower = col_str.lower()
-                
-                # Channel 1: 第一個溫度欄位
-                if 'degc' in col_lower and '.1' not in col_str and 1 not in ch_cols:
+                if 'degc' in col_lower and '.1' not in col_str:
                     ch_cols[1] = col
-                # Channel 2: 濕度
                 elif '%' in col_str or 'rh' in col_lower:
                     ch_cols[2] = col
-                # Channel 3: UV
-                elif 'w/m2' in col_lower and '.1' not in col_str:
-                    ch_cols[3] = col
-                # Channel 4: 照度
                 elif 'lux' in col_lower:
+                    ch_cols[3] = col
+                elif 'usa' in col_lower:
                     ch_cols[4] = col
-                # Channel 5: 設備溫度 - 可能是 degC.1 或者是第二個 degC 欄位
-                elif 'degc.1' in col_lower:
-                    ch_cols[5] = col
-                elif len(degc_columns) >= 2 and 'degc' in col_lower and 1 in ch_cols and col != ch_cols[1]:
-                    # 如果有兩個 degC 欄位，第二個就是設備溫度
+                elif 'ref' in col_lower:
                     ch_cols[5] = col
             
-            print(f"日期欄位: {date_col}")
-            print(f"資料欄位: {data_columns}")
-            print(f"通道映射: {ch_cols}")
+            wm2_columns = [col for col in data_columns if 'w/m2' in str(col).lower()]
+            if len(wm2_columns) >= 2:
+                if 4 not in ch_cols:
+                    ch_cols[4] = wm2_columns[0]
+                if 5 not in ch_cols:
+                    ch_cols[5] = wm2_columns[1]
             
             if date_col is None:
                 print("警告：找不到日期時間欄位")
                 return None
             
+            print(f"識別的欄位: CH1={ch_cols.get(1)}, CH2={ch_cols.get(2)}, CH3={ch_cols.get(3)}, CH4={ch_cols.get(4)}, CH5={ch_cols.get(5)}")
+            
+            all_records = []
             for idx, row in df_data.iterrows():
                 try:
-                    # 檢查是否有 Date&Time 資料
                     if pd.isna(row.get(date_col)):
                         continue
-                    
-                    # 解析日期時間
                     date_time = row[date_col]
                     if isinstance(date_time, str):
-                        # 如果是字串，嘗試解析
                         date_time = pd.to_datetime(date_time)
                     
-                    # 組合完整的 datetime
-                    record_time = date_time
-                    
-                    # 提取各通道資料，處理空值
-                    ch1_temp = float(row[ch_cols.get(1)]) if 1 in ch_cols and pd.notna(row.get(ch_cols.get(1))) else None
-                    ch2_humidity = float(row[ch_cols.get(2)]) if 2 in ch_cols and pd.notna(row.get(ch_cols.get(2))) else None
-                    ch3_uv = float(row[ch_cols.get(3)]) if 3 in ch_cols and pd.notna(row.get(ch_cols.get(3))) else None
-                    ch4_lux = float(row[ch_cols.get(4)]) if 4 in ch_cols and pd.notna(row.get(ch_cols.get(4))) else None
-                    ch5_device_temp = float(row[ch_cols.get(5)]) if 5 in ch_cols and pd.notna(row.get(ch_cols.get(5))) else None
-                    
-                    records.append({
-                        'year': year,
-                        'month': month,
-                        'record_time': record_time,
-                        'channel1_temperature': ch1_temp,
-                        'channel2_humidity': ch2_humidity,
-                        'channel3_uv': ch3_uv,
-                        'channel4_lux': ch4_lux,
-                        'channel5_device_temp': ch5_device_temp
+                    all_records.append({
+                        'year': year, 'month': month, 'record_time': date_time,
+                        'channel1_temperature': float(row[ch_cols.get(1)]) if 1 in ch_cols and pd.notna(row.get(ch_cols.get(1))) else None,
+                        'channel2_humidity': float(row[ch_cols.get(2)]) if 2 in ch_cols and pd.notna(row.get(ch_cols.get(2))) else None,
+                        'channel3_lux': float(row[ch_cols.get(3)]) if 3 in ch_cols and pd.notna(row.get(ch_cols.get(3))) else None,
+                        'channel4_uv_usa': float(row[ch_cols.get(4)]) if 4 in ch_cols and pd.notna(row.get(ch_cols.get(4))) else None,
+                        'channel5_uv_ref': float(row[ch_cols.get(5)]) if 5 in ch_cols and pd.notna(row.get(ch_cols.get(5))) else None
                     })
-                    
-                except Exception as e:
-                    print(f"處理第 {idx} 行時發生錯誤: {e}")
+                except:
                     continue
             
-            print(f"成功解析 {len(records)} 筆記錄")
-            return records
+            if not all_records:
+                print("沒有解析到任何記錄")
+                return None
+            
+            print(f"成功解析 {len(all_records)} 筆記錄")
+            all_records_df = pd.DataFrame(all_records)
+            print("計算每日統計...")
+            daily_stats = self.calculate_daily_statistics(all_records_df)
+            print("進行 30 分鐘採樣...")
+            sampled_records = self.sample_records_30min(all_records_df, daily_stats)
+            print(f"採樣後: {len(sampled_records)} 筆（減少 {(1-len(sampled_records)/len(all_records))*100:.1f}%）")
+            return sampled_records
             
         except Exception as e:
-            print(f"解析 Excel 檔案錯誤: {e}")
+            print(f"解析錯誤: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def insert_records(self, records):
-        """插入記錄到資料庫"""
         if not self.connection or not records:
             return False
         
         insert_query = """
         INSERT INTO gl860_weather_data 
-        (year, month, record_time, channel1_temperature, channel2_humidity, 
-         channel3_uv, channel4_lux, channel5_device_temp)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        (year, month, date, record_date, record_time, 
+         channel1_temperature, channel2_humidity, channel3_lux, channel4_uv_usa, channel5_uv_ref,
+         daily_avg_temperature, daily_avg_humidity, daily_avg_lux, daily_avg_uv_usa, daily_avg_uv_ref,
+         daily_max_temperature, daily_max_humidity, daily_max_lux, daily_max_uv_usa, daily_max_uv_ref,
+         daily_min_temperature, daily_min_humidity, daily_min_lux, daily_min_uv_usa, daily_min_uv_ref,
+         daily_temperature_delta, daily_humidity_delta, daily_record_count)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         
         try:
             cursor = self.connection.cursor()
-            
-            # 批量插入
-            values = [
-                (
-                    r['year'],
-                    r['month'],
-                    r['record_time'],
-                    r['channel1_temperature'],
-                    r['channel2_humidity'],
-                    r['channel3_uv'],
-                    r['channel4_lux'],
-                    r['channel5_device_temp']
-                )
-                for r in records
-            ]
-            
+            values = [(r['year'], r['month'], r['date'], r.get('record_date'), r['record_time'],
+                      r['channel1_temperature'], r['channel2_humidity'], r['channel3_lux'], r['channel4_uv_usa'], r['channel5_uv_ref'],
+                      r.get('daily_avg_temperature'), r.get('daily_avg_humidity'), r.get('daily_avg_lux'), r.get('daily_avg_uv_usa'), r.get('daily_avg_uv_ref'),
+                      r.get('daily_max_temperature'), r.get('daily_max_humidity'), r.get('daily_max_lux'), r.get('daily_max_uv_usa'), r.get('daily_max_uv_ref'),
+                      r.get('daily_min_temperature'), r.get('daily_min_humidity'), r.get('daily_min_lux'), r.get('daily_min_uv_usa'), r.get('daily_min_uv_ref'),
+                      r.get('daily_temperature_delta'), r.get('daily_humidity_delta'), r.get('daily_record_count')) for r in records]
             cursor.executemany(insert_query, values)
             self.connection.commit()
             print(f"成功插入 {cursor.rowcount} 筆記錄")
             return True
-            
         except Error as e:
-            print(f"插入資料錯誤: {e}")
+            print(f"插入錯誤: {e}")
             self.connection.rollback()
             return False
     
-    def import_all_files(self, folder_path='GL860'):
-        """導入指定資料夾中的所有 Excel 檔案"""
+    def import_all_gl860_files(self, folder_path='GL860'):
         pattern = os.path.join(folder_path, 'GL860 RAWDATA_*.xlsx')
-        files = glob.glob(pattern)
-        
-        # 排除暫存檔
-        files = [f for f in files if not os.path.basename(f).startswith('~$')]
-        
+        files = [f for f in glob.glob(pattern) if not os.path.basename(f).startswith('~$')]
         if not files:
-            print(f"在 {folder_path} 中找不到符合條件的檔案")
+            print("找不到GL860檔案")
             return
-        
-        print(f"找到 {len(files)} 個檔案")
-        
-        # 按檔名排序
+        print(f"找到 {len(files)} 個GL860檔案")
         files.sort()
-        
-        total_records = 0
+        total = 0
         for filepath in files:
             records = self.parse_excel_file(filepath)
-            if records:
-                if self.insert_records(records):
-                    total_records += len(records)
-        
-        print(f"\n總共導入 {total_records} 筆記錄")
+            if records and self.insert_records(records):
+                total += len(records)
+        print(f"\n總共導入 {total} 筆GL860記錄")
     
-    def verify_data(self):
-        """驗證導入的資料"""
-        if not self.connection:
+    def import_all_coai_files(self, folder_path='COAI'):
+        pattern = os.path.join(folder_path, 'C0AI10-*.xlsx')
+        files = [f for f in glob.glob(pattern) if not os.path.basename(f).startswith('~$')]
+        if not files:
+            print("找不到COAI檔案")
             return
+        print(f"\n找到 {len(files)} 個COAI檔案")
+        files.sort()
+        total = 0
+        for filepath in files:
+            records = self.parse_coai_file(filepath)
+            if records and self.insert_coai_records(records):
+                total += len(records)
+        print(f"總共導入 {total} 筆COAI記錄")
+        self.update_gl860_with_coai()
+    
+    def parse_coai_file(self, filepath):
+        basename = os.path.basename(filepath)
+        parts = basename.replace('.xlsx', '').split('-')
+        if len(parts) < 3:
+            return None
+        try:
+            year, month = int(parts[1]), int(parts[2])
+        except:
+            return None
         
+        print(f"\n處理COAI: {basename} ({year}/{month})")
+        try:
+            df = pd.read_excel(filepath, sheet_name=0, skiprows=1)
+            col_map = {}
+            for i, col in enumerate(df.columns):
+                c = str(col).lower()
+                if i == 0:
+                    col_map['date'] = i
+                elif 'temperature' in c and 'max' not in c:
+                    col_map['temp'] = i
+                elif 'rh' in c and 'min' not in c:
+                    col_map['hum'] = i
+                elif 'precp' in c:
+                    col_map['rain'] = i
+            
+            records = []
+            for idx, row in df.iterrows():
+                try:
+                    d = row.iloc[col_map['date']]
+                    if pd.isna(d):
+                        continue
+                    if isinstance(d, (int, float)):
+                        d = pd.Timestamp(year=year, month=month, day=int(d))
+                    elif isinstance(d, str):
+                        d = pd.to_datetime(d)
+                    
+                    def sf(v):
+                        if pd.isna(v) or v in ['/', 'X', '']:
+                            return None
+                        try:
+                            return float(v)
+                        except:
+                            return None
+                    
+                    records.append({
+                        'year': year, 'month': month, 'obs_date': d.date(),
+                        'temperature': sf(row.iloc[col_map.get('temp')]) if 'temp' in col_map else None,
+                        'humidity': sf(row.iloc[col_map.get('hum')]) if 'hum' in col_map else None,
+                        'rainfall': sf(row.iloc[col_map.get('rain')]) if 'rain' in col_map else None
+                    })
+                except:
+                    continue
+            print(f"解析 {len(records)} 筆")
+            return records
+        except Exception as e:
+            print(f"錯誤: {e}")
+            return None
+    
+    def insert_coai_records(self, records):
+        if not self.connection or not records:
+            return False
         try:
             cursor = self.connection.cursor()
-            
-            # 統計各月份的記錄數
-            query = """
-            SELECT year, month, COUNT(*) as record_count,
-                   MIN(record_time) as first_record,
-                   MAX(record_time) as last_record
-            FROM gl860_weather_data
-            GROUP BY year, month
-            ORDER BY year, month
-            """
-            
-            cursor.execute(query)
-            results = cursor.fetchall()
-            
-            print("\n=== 資料驗證 ===")
-            print(f"{'年份':<6} {'月份':<6} {'記錄數':<10} {'第一筆':<20} {'最後一筆':<20}")
-            print("-" * 70)
-            
-            for row in results:
-                print(f"{row[0]:<6} {row[1]:<6} {row[2]:<10} {row[3]:<20} {row[4]:<20}")
-            
-            # 統計各欄位的完整性
-            query2 = """
-            SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN channel1_temperature IS NOT NULL THEN 1 ELSE 0 END) as ch1_count,
-                SUM(CASE WHEN channel2_humidity IS NOT NULL THEN 1 ELSE 0 END) as ch2_count,
-                SUM(CASE WHEN channel3_uv IS NOT NULL THEN 1 ELSE 0 END) as ch3_count,
-                SUM(CASE WHEN channel4_lux IS NOT NULL THEN 1 ELSE 0 END) as ch4_count,
-                SUM(CASE WHEN channel5_device_temp IS NOT NULL THEN 1 ELSE 0 END) as ch5_count
-            FROM gl860_weather_data
-            """
-            
-            cursor.execute(query2)
-            result = cursor.fetchone()
-            
-            print("\n=== 欄位完整性 ===")
-            print(f"總記錄數: {result[0]}")
-            if result[0] > 0:
-                print(f"Channel 1 (溫度):     {result[1]} ({result[1]/result[0]*100:.1f}%)")
-                print(f"Channel 2 (濕度):     {result[2]} ({result[2]/result[0]*100:.1f}%)")
-                print(f"Channel 3 (UV):       {result[3]} ({result[3]/result[0]*100:.1f}%)")
-                print(f"Channel 4 (Lux):      {result[4]} ({result[4]/result[0]*100:.1f}%)")
-                print(f"Channel 5 (設備溫度): {result[5]} ({result[5]/result[0]*100:.1f}%)")
-            else:
-                print("沒有資料可以統計")
-            
+            for r in records:
+                cursor.execute("""
+                    INSERT INTO coai_weather_data (year, month, obs_date, temperature, humidity, rainfall)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE temperature=VALUES(temperature), humidity=VALUES(humidity), rainfall=VALUES(rainfall)
+                """, (r['year'], r['month'], r['obs_date'], r['temperature'], r['humidity'], r['rainfall']))
+            self.connection.commit()
+            return True
         except Error as e:
-            print(f"驗證資料錯誤: {e}")
+            print(f"插入COAI錯誤: {e}")
+            return False
+    
+    def update_gl860_with_coai(self):
+        if not self.connection:
+            return
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                UPDATE gl860_weather_data g
+                INNER JOIN (SELECT DATE(record_time) as rd, MIN(id) as fid FROM gl860_weather_data GROUP BY DATE(record_time)) fr ON g.id = fr.fid
+                INNER JOIN coai_weather_data c ON DATE(g.record_time) = c.obs_date
+                SET g.coai_temperature = c.temperature, g.coai_humidity = c.humidity,
+                    g.coai_rainfall = CASE WHEN c.rainfall IS NULL OR c.rainfall = 0 THEN '/' ELSE CAST(c.rainfall AS CHAR) END
+            """)
+            self.connection.commit()
+            print(f"已更新 {cursor.rowcount} 筆GL860記錄的COAI數據")
+        except Error as e:
+            print(f"更新COAI錯誤: {e}")
+    
+    def verify_data(self):
+        if not self.connection:
+            return
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute("SELECT year, month, COUNT(*) as cnt, MIN(record_time), MAX(record_time) FROM gl860_weather_data GROUP BY year, month ORDER BY year, month")
+            print("\n=== GL860 資料驗證 ===")
+            for row in cursor.fetchall():
+                print(f"{row[0]}/{row[1]:02d}: {row[2]} 筆, {row[3]} ~ {row[4]}")
+            
+            cursor.execute("""
+                SELECT record_date, daily_avg_temperature, daily_avg_humidity, daily_avg_lux, 
+                       daily_avg_uv_usa, daily_avg_uv_ref, coai_temperature, coai_humidity, coai_rainfall, daily_record_count
+                FROM gl860_weather_data WHERE record_date IS NOT NULL ORDER BY record_date DESC LIMIT 5
+            """)
+            print("\n=== 最近5天統計 ===")
+            for row in cursor.fetchall():
+                print(f"{row[0]}: 均溫{row[1]}°C, 均濕{row[2]}%, 均LUX{row[3]}, UV_USA{row[4]}, UV_Ref{row[5]}, COAI({row[6]}°C,{row[7]}%,{row[8]}), 原始{row[9]}筆")
+        except Error as e:
+            print(f"驗證錯誤: {e}")
     
     def close(self):
-        """關閉資料庫連接"""
         if self.connection and self.connection.is_connected():
             self.connection.close()
             print("\n資料庫連接已關閉")
 
 
 def main():
-    """主程式"""
     print("=" * 70)
-    print("GL860 天氣資料導入 MySQL 系統")
+    print("GL860 & COAI 一次部署系統")
+    print("Channel 1: 溫度, Channel 2: 濕度, Channel 3: LUX")
+    print("Channel 4: UV (USA), Channel 5: UV (Ref)")
     print("=" * 70)
     
-    # 設定資料庫連接參數（請根據實際情況修改）
-    importer = GL860DataImporter(
-        host='localhost',
-        database='weather_data',
-        user='root',
-        password=''  # 請輸入您的 MySQL 密碼
-    )
+    importer = GL860DataImporter(host='localhost', database='weather_data', user='root', password='')
     
-    # 建立連接
     if not importer.create_connection():
-        print("無法連接到資料庫，程式結束")
+        print("無法連接資料庫")
         return
     
-    # 創建資料表
     if not importer.create_table():
-        print("無法創建資料表，程式結束")
+        print("無法創建資料表")
         importer.close()
         return
     
-    # 導入所有檔案
-    importer.import_all_files('GL860')
+    # 步驟1: 導入GL860資料
+    print("\n" + "=" * 50)
+    print("步驟1: 導入GL860資料")
+    print("=" * 50)
+    importer.import_all_gl860_files('GL860')
     
-    # 驗證資料
+    # 步驟2: 導入COAI資料並更新到GL860
+    print("\n" + "=" * 50)
+    print("步驟2: 導入COAI資料")
+    print("=" * 50)
+    importer.import_all_coai_files('COAI')
+    
+    # 步驟3: 驗證
     importer.verify_data()
-    
-    # 關閉連接
     importer.close()
+    
+    print("\n" + "=" * 70)
+    print("部署完成！欄位順序: CH1-5 → COAI → Daily統計")
+    print("=" * 70)
 
 
 if __name__ == "__main__":

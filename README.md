@@ -1,46 +1,76 @@
-# GL860 天氣資料 MySQL 導入系統
+# GL860 & COAI 天氣資料 MySQL 系統
 
 ## 📋 系統說明
 
-這個系統可以自動將 GL860 資料夾中的 Excel 檔案導入到 MySQL 資料庫中。
+自動將 GL860 和 COAI Excel 資料導入 MySQL 資料庫，採用智能採樣技術大幅減少資料量，同時保持統計精度。
 
-## 📁 檔案說明
+### 資料來源
 
-### 主要程式
+1. **GL860 資料**：高頻率氣象資料
+   - Channel 1: 溫度 (degC)
+   - Channel 2: 濕度 (%)
+   - Channel 3: 照度 LUX (lux)
+   - Channel 4: UV USA/Apogee (W/m²)
+   - Channel 5: UV Ref (W/m²)
+   - 原始頻率：每分鐘一筆
+   - 採樣輸出：每30分鐘一筆
+   - 檔案位置：`GL860/` 資料夾
 
-1. **update_database.py** ⭐ **推薦使用**
-   - 一鍵更新資料庫的自動化腳本
-   - 會自動執行清除、導入、驗證三個步驟
-   - 適合日常使用
+2. **COAI 資料**：每日氣象觀測
+   - 氣溫、濕度、風速、風向、降水量
+   - 檔案位置：`COAI/` 資料夾
 
-2. **gl860_to_mysql.py**
-   - 讀取 GL860 資料夾中的所有 Excel 檔案
-   - 將資料導入到 MySQL 資料表
-   - 智能識別不同檔案的欄位結構
+## 🎯 核心特色
 
-3. **clear_data.py**
-   - 清空資料表中的所有資料
-   - 保留資料表結構
+### GL860 智能採樣系統
+- ✅ **30分鐘採樣**：每30分鐘擷取一筆數據，大幅減少資料量
+- ✅ **統計精度100%**：平均、最大、最小值使用**每分鐘的全部原始資料**計算
+- ✅ **5通道完整統計**：所有Channel都計算每日平均值
+- ✅ **內建每日統計**：自動計算並附加在每天第一筆記錄
+- ✅ **即時驗證**：導入後立即顯示統計摘要
 
-4. **verify_import.py**
-   - 驗證資料導入結果
-   - 顯示統計資訊
+## 📁 主要程式
 
-### 設定檔
+### 1. gl860_to_mysql.py ⭐ 主要程式
+導入 GL860 資料（30分鐘採樣+5通道統計）
+```bash
+python gl860_to_mysql.py
+```
 
-- **config.ini** - MySQL 資料庫連線設定
-- **requirements.txt** - Python 套件需求清單
+**功能：**
+- 讀取所有 GL860 Excel 檔案
+- 自動30分鐘採樣
+- 計算每日統計（使用全部每分鐘原始資料）
+- 驗證導入結果
 
-## 🚀 使用方式
+### 2. coai_to_mysql.py
+導入 COAI 資料並整合到 GL860 表
+```bash
+python coai_to_mysql.py
+```
+
+### 3. deploy_all_data.py
+一鍵部署 GL860 + COAI 資料
+```bash
+python deploy_all_data.py
+```
+
+### 4. 輔助程式
+- **clear_data.py** - 清空 GL860 資料表
+- **verify_import.py** - 驗證資料完整性
+- **update_database(rebuild).py** - 完整重建資料庫
+- **add_new_data.py** - 增量導入新資料
+
+## 🚀 快速開始
 
 ### 初次設定
 
-1. 安裝 Python 套件：
+1. **安裝套件**
 ```bash
 pip install -r requirements.txt
 ```
 
-2. 設定資料庫連線（編輯 config.ini）：
+2. **設定資料庫**（編輯 config.ini）
 ```ini
 [mysql]
 host = localhost
@@ -49,246 +79,206 @@ password = 你的密碼
 database = weather_data
 ```
 
-### 更新資料庫資料
+### 使用方式
 
-**方法一：完全更新（清空後重新導入）**
+**完整重建資料庫**
 ```bash
-python update_database.py
+python update_database(rebuild).py
 ```
-這個腳本會：
-1. 詢問確認
-2. 清除舊資料
-3. 導入新資料
-4. 驗證結果
+會執行：清空 → 導入 → 驗證
 
-⚠️ **注意：此方法會清空所有舊資料**
-
-**方法二：增量導入（只加入新資料）⭐ 推薦用於日常更新**
+**只導入 GL860**
 ```bash
-python add_new_data.py
-```
-這個腳本會：
-1. 自動檢測哪些檔案已經導入過
-2. 讓您選擇要導入哪些檔案
-3. 只導入新的記錄，跳過重複的資料
-4. 驗證結果
-
-✅ **優點：不會清空舊資料，適合定期加入新月份資料**
-
-**方法二：手動執行步驟**
-```bash
-# 步驟 1: 清除舊資料
-python clear_data.py
-
-# 步驟 2: 導入新資料
 python gl860_to_mysql.py
-
-# 步驟 3: 驗證結果（可選）
-python verify_import.py
 ```
 
-## 💡 常見使用情境
+**同時部署 GL860 + COAI**
+```bash
+python deploy_all_data.py
+```
 
-### 情境 1：新的月份資料（如 2511）到了 ⭐ 最常用
+**增量導入新月份**
 ```bash
 python add_new_data.py
 ```
-選擇「只導入新檔案」，系統會自動識別並只導入新月份的資料。
 
-**完成後手動更新統計：**
-```bash
-python create_statistics.py
-```
+## 📊 資料庫結構
 
-### 情境 2：想重新導入某個月份的資料（如修正了 2510）
-```bash
-python add_new_data.py
-```
-選擇「選擇特定檔案導入」，然後輸入該檔案的編號。系統會詢問是否要重新導入。
+### gl860_weather_data 表
 
-**完成後手動更新統計：**
-```bash
-python create_statistics.py
-```
+| 欄位 | 說明 | 備註 |
+|------|------|------|
+| record_time | 記錄時間 | 每30分鐘一筆 (DATETIME) |
+| **channel1_temperature** | 溫度 (degC) | 採樣點數值 |
+| **channel2_humidity** | 濕度 (%) | 採樣點數值 |
+| **channel3_lux** | 照度 (lux) | 採樣點數值 |
+| **channel4_uv_usa** | UV USA (W/m²) | 採樣點數值 |
+| **channel5_uv_ref** | UV Ref (W/m²) | 採樣點數值 |
+| **record_date** | 當天日期 | 只有年/月/日 (DATE)⭐ |
+| **daily_avg_temperature** | 每日平均溫度 | 用全部分鐘資料計算⭐ |
+| **daily_avg_humidity** | 每日平均濕度 | 用全部分鐘資料計算⭐ |
+| **daily_avg_lux** | 每日平均照度 | 用全部分鐘資料計算⭐ |
+| **daily_avg_uv_usa** | 每日平均UV USA | 用全部分鐘資料計算⭐ |
+| **daily_avg_uv_ref** | 每日平均UV Ref | 用全部分鐘資料計算⭐ |
+| **daily_max_temperature** | 每日最高溫度 | 用全部分鐘資料計算⭐ |
+| **daily_min_temperature** | 每日最低溫度 | 用全部分鐘資料計算⭐ |
+| **daily_temperature_delta** | 每日溫差 | 用全部分鐘資料計算⭐ |
+| **daily_humidity_delta** | 每日濕差 | 用全部分鐘資料計算⭐ |
+| **daily_record_count** | 原始記錄數 | 顯示計算統計時的分鐘資料筆數 |
+| coai_temperature | COAI 氣溫 | 每日第一筆 |
+| coai_humidity | COAI 濕度 | 每日第一筆 |
+| coai_rainfall | COAI 降雨量 | 每日第一筆 |
 
-### 情境 3：第一次建立資料庫或想完全重建 ⭐ 一鍵完成
-```bash
-python update_database.py
-```
-此方法會：
-- 清空所有舊資料
-- 重新導入所有 GL860 檔案
-- 自動更新統計資料表和視圖
+⚠️ **`record_date`、每日統計和 COAI 欄位只在每天第一筆記錄中有值**
 
-✅ **不需要再執行 create_statistics.py**
+### record_date 欄位說明
 
-### 情境 4：只想查看目前資料庫的狀態
-```bash
-python verify_import.py
-```
+`record_date` 是新增的日期欄位，格式為 `DATE`（例如：`2025-07-01`），**只包含年/月/日，不包含時間**。
 
-## 📊 MySQL Workbench 中查看資料
+**設計目的：**
+- 方便快速查詢每日統計資料
+- 與其他一天只有一筆的統計欄位放在一起
+- 簡化日期範圍查詢
 
-更新資料後，在 MySQL Workbench 中：
-
-1. **重新執行查詢**：
-   - 按 F5 鍵
-   - 或點擊 ⚡ 執行按鈕
-
-2. **基本查詢範例**：
+**使用範例：**
 ```sql
--- 查看所有資料
-SELECT * FROM gl860_weather_data;
+-- 查詢有 record_date 的記錄（即每天第一筆）
+SELECT record_date, daily_avg_temperature, daily_avg_lux, daily_avg_uv_usa
+FROM gl860_weather_data
+WHERE record_date IS NOT NULL
+ORDER BY record_date DESC;
 
--- 查看最新 10 筆資料
-SELECT * FROM gl860_weather_data 
-ORDER BY record_time DESC 
+-- 查詢特定日期範圍
+SELECT record_date, daily_avg_temperature, daily_avg_uv_usa, daily_avg_uv_ref, coai_temperature
+FROM gl860_weather_data
+WHERE record_date BETWEEN '2025-11-01' AND '2025-11-30';
+```
+
+## 📈 常用查詢
+
+### 查看每日統計（所有5個Channel）
+```sql
+SELECT 
+    record_date as 日期,
+    daily_avg_temperature as 平均溫度,
+    daily_avg_humidity as 平均濕度,
+    daily_avg_lux as 平均照度,
+    daily_avg_uv_usa as 平均UV_USA,
+    daily_avg_uv_ref as 平均UV_Ref,
+    daily_record_count as 原始筆數,
+    coai_rainfall as 降雨量
+FROM gl860_weather_data
+WHERE record_date IS NOT NULL
+ORDER BY record_date DESC
 LIMIT 10;
-
--- 查看某月份的資料
-SELECT * FROM gl860_weather_data 
-WHERE year = 2025 AND month = 10;
-
--- 查看有設備溫度的資料
-SELECT * FROM gl860_weather_data 
-WHERE channel_5_device_temp IS NOT NULL;
 ```
 
-## 📈 資料庫結構
-
-資料表：`gl860_weather_data`
-
-| 欄位名稱 | 類型 | 說明 |
-|---------|------|------|
-| id | INT | 主鍵（自動遞增）|
-| year | INT | 年份 |
-| month | INT | 月份 |
-| record_time | DATETIME | 記錄時間 |
-| channel_1_temp | DECIMAL(5,2) | CH1: 溫度 (°C) |
-| channel_2_humidity | DECIMAL(5,2) | CH2: 濕度 (%) |
-| channel_3_uv | DECIMAL(10,2) | CH3: UV (W/m²) |
-| channel_4_lux | DECIMAL(10,2) | CH4: Lux (照度) |
-| channel_5_device_temp | DECIMAL(5,2) | CH5: 設備溫度 (°C) |
-
-## ⚠️ 注意事項
-
-1. **每次執行 update_database.py 會清空並重新導入所有資料**
-   - 不是累加，而是完全更新
-   - 確保 GL860 資料夾中的檔案是最新的
-
-2. **檔案命名格式**
-   - 檔案名需包含年月資訊：如 `GL860 RAWDATA_2507.xlsx`
-   - 系統會自動從檔名擷取年份和月份
-
-3. **資料完整性**
-   - 某些月份可能沒有所有通道的資料（例如 CH3、CH5）
-   - 缺失的資料會以 NULL 儲存
-
-## 🔧 疑難排解
-
-### 問題：連線失敗
-- 檢查 config.ini 中的資料庫設定
-- 確認 MySQL 服務是否啟動
-- 檢查帳號密碼是否正確
-
-### 問題：找不到檔案
-- 確認 GL860 資料夾與程式在同一目錄下
-- 檢查檔案名稱格式是否正確
-
-### 問題：資料重複
-- 執行 `python clear_data.py` 清除舊資料
-- 再執行 `python gl860_to_mysql.py` 重新導入
-
-## 📊 進階功能：統計資料表和視圖
-
-### create_statistics.py - 建立統計資料
-
-執行此腳本可以：
-1. 建立每日統計資料表 (`gl860_daily_statistics`)
-2. 建立方便查詢的視圖 (`v_gl860_complete_data`)
-3. 自動填充統計資料
-4. 驗證 Channel 5 資料完整性
-
-```bash
-python create_statistics.py
-```
-
-### 統計資料表結構
-
-**gl860_daily_statistics** - 每日統計資料表
-
-| 欄位名稱 | 類型 | 說明 |
-|---------|------|------|
-| id | INT | 主鍵 |
-| date | DATE | 日期 |
-| year | INT | 年份 |
-| month | INT | 月份 |
-| day | INT | 日 |
-| avg_temperature | DECIMAL(5,2) | 平均溫度 |
-| avg_humidity | DECIMAL(5,2) | 平均濕度 |
-| avg_device_temp | DECIMAL(5,2) | 平均設備溫度 |
-| max_temperature | DECIMAL(5,2) | 最高溫度 |
-| max_humidity | DECIMAL(5,2) | 最高濕度 |
-| min_temperature | DECIMAL(5,2) | 最低溫度 |
-| min_humidity | DECIMAL(5,2) | 最低濕度 |
-| temperature_delta | DECIMAL(5,2) | 溫度日較差 |
-| humidity_delta | DECIMAL(5,2) | 濕度日較差 |
-| record_count | INT | 記錄筆數 |
-
-### 視圖說明
-
-**v_gl860_complete_data** - 完整資料視圖
-
-此視圖簡化了欄位名稱，方便查詢：
-
+### 查看某日的30分鐘採樣點
 ```sql
--- 使用視圖查詢資料
-SELECT * FROM v_gl860_complete_data 
-WHERE year = 2025 AND month = 10
-ORDER BY record_time DESC
-LIMIT 100;
-```
-
-視圖欄位：
-- `temperature` - 溫度 (原 channel1_temperature)
-- `humidity` - 濕度 (原 channel2_humidity)
-- `uv` - UV值 (原 channel3_uv)
-- `lux` - 照度 (原 channel4_lux)
-- `device_temperature` - 設備溫度 (原 channel5_device_temp)
-
-### 實用查詢範例
-
-```sql
--- 查詢每日統計
-SELECT * FROM gl860_daily_statistics 
-WHERE year = 2025 AND month = 10
-ORDER BY date DESC;
-
--- 查詢某月的平均溫度趨勢
-SELECT date, avg_temperature, max_temperature, min_temperature
-FROM gl860_daily_statistics
-WHERE year = 2025 AND month = 10
-ORDER BY date;
-
--- 使用簡化視圖查詢
-SELECT date, temperature, humidity, device_temperature
-FROM v_gl860_complete_data
-WHERE year = 2025 AND month = 9
+SELECT 
+    record_time,
+    channel1_temperature as 溫度,
+    channel2_humidity as 濕度,
+    channel3_lux as 照度,
+    channel4_uv_usa as UV_USA,
+    channel5_uv_ref as UV_Ref
+FROM gl860_weather_data
+WHERE DATE(record_time) = '2025-11-30'
 ORDER BY record_time;
 ```
 
-### Channel 5 數據說明
+### 溫差最大的日子
+```sql
+SELECT 
+    record_date as 日期,
+    daily_max_temperature as 最高溫,
+    daily_min_temperature as 最低溫,
+    daily_temperature_delta as 溫差
+FROM gl860_weather_data
+WHERE record_date IS NOT NULL
+ORDER BY daily_temperature_delta DESC
+LIMIT 10;
+```
 
-執行 `create_statistics.py` 時會顯示各月份的 Channel 5 (設備溫度) 數據完整度：
+### 比較 UV USA vs UV Ref
+```sql
+SELECT 
+    record_date as 日期,
+    daily_avg_uv_usa as 平均UV_USA,
+    daily_avg_uv_ref as 平均UV_Ref,
+    daily_avg_uv_usa - daily_avg_uv_ref as UV差異
+FROM gl860_weather_data
+WHERE record_date IS NOT NULL
+ORDER BY record_date;
+```
 
-- 2025年7月：67.1% 有 CH5 數據
-- 2025年8月：99.3% 有 CH5 數據  
-- 2025年9月：100.0% 有 CH5 數據
-- 2025年10月：0.0% 無 CH5 數據
+## 💡 資料特性說明
 
-## 📞 技術支援
+### 採樣策略
+- **原始資料**：每分鐘一筆
+- **儲存資料**：每30分鐘採樣一筆
+- **統計資料**：使用每分鐘的全部原始資料計算
+- **資料減少**：約 96.7%
 
-如有問題，請檢查：
-1. Python 版本（建議 3.7+）
-2. MySQL 版本（建議 5.7+）
-3. 所有套件是否正確安裝
+### 統計精度
+- ✅ 所有統計數據使用**每分鐘的全部原始資料**計算
+- ✅ `daily_record_count` 顯示實際使用多少筆分鐘級資料
+- ✅ 例如：1440 表示該天有完整的每分鐘資料
+
+### 5通道統計
+所有5個Channel都計算以下統計：
+- **daily_avg_***: 每日平均值
+- **daily_max_***: 每日最大值
+- **daily_min_***: 每日最小值
+
+### 資料量比較
+
+| 項目 | 原始筆數 | 採樣後筆數 | 減少比例 |
+|------|----------|-----------|----------|
+| 每月 | ~43,200 | ~1,440 | 96.7% |
+| 統計精度 | 100% | 100% | 不變 |
+| 查詢速度 | 慢 | 快 30倍 | - |
+
+## ⚠️ 注意事項
+
+1. **檔案命名**
+   - GL860：`GL860 RAWDATA_YYMM.xlsx`
+   - COAI：`C0AI10-YYYY-MM.xlsx`
+
+2. **記憶體需求**
+   - 需要處理整月資料到記憶體中計算統計
+   - 一般電腦 8GB RAM 足夠
+
+3. **Channel對應**
+   - Channel 1: 溫度 (degC)
+   - Channel 2: 濕度 (%)
+   - Channel 3: 照度 LUX (lux)
+   - Channel 4: UV USA/Apogee (W/m²)
+   - Channel 5: UV Ref (W/m²)
+
+## 🔧 疑難排解
+
+### 看不到更新後的資料
+1. 在 MySQL Workbench 中按 F5 重新整理
+2. 或右鍵資料庫 → Refresh All
+
+### 記憶體不足
+- 分批處理（一次處理一個月）
+- 或增加系統記憶體
+
+### 需要每分鐘的完整資料
+- 保留 Excel 原始檔案
+- 系統主要用於趨勢分析和統計
+
+## 📞 系統需求
+
+- Python 3.7+
+- MySQL 5.7+
+- 8GB+ RAM（推薦）
+- pandas, mysql-connector-python, openpyxl
+
+---
+
+**版本**: 3.0 (5通道版)  
+**更新日期**: 2025-12-15  
+**特色**: 5通道完整統計 + 30分鐘採樣 + UV USA/Ref 雙通道
