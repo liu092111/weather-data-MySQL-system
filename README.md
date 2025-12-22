@@ -118,8 +118,11 @@ python add_new_data.py
 | **daily_avg_temperature** | 每日平均溫度 | 用全部分鐘資料計算⭐ |
 | **daily_avg_humidity** | 每日平均濕度 | 用全部分鐘資料計算⭐ |
 | **daily_avg_lux** | 每日平均照度 | 用全部分鐘資料計算⭐ |
+| **daily_lux_dosage** | 每日照度劑量 | lux·hour（積分計算）⭐🆕 |
 | **daily_avg_uv_usa** | 每日平均UV USA | 用全部分鐘資料計算⭐ |
+| **daily_uv_usa_dosage** | 每日UV USA劑量 | W·h/m²（積分計算）⭐🆕 |
 | **daily_avg_uv_ref** | 每日平均UV Ref | 用全部分鐘資料計算⭐ |
+| **daily_uv_ref_dosage** | 每日UV Ref劑量 | W·h/m²（積分計算）⭐🆕 |
 | **daily_max_temperature** | 每日最高溫度 | 用全部分鐘資料計算⭐ |
 | **daily_min_temperature** | 每日最低溫度 | 用全部分鐘資料計算⭐ |
 | **daily_temperature_delta** | 每日溫差 | 用全部分鐘資料計算⭐ |
@@ -127,7 +130,8 @@ python add_new_data.py
 | **daily_record_count** | 原始記錄數 | 顯示計算統計時的分鐘資料筆數 |
 | coai_temperature | COAI 氣溫 | 每日第一筆 |
 | coai_humidity | COAI 濕度 | 每日第一筆 |
-| coai_rainfall | COAI 降雨量 | 每日第一筆 |
+| coai_rainfall | COAI 降雨 | "1"=有降雨, "/"=無降雨 🆕 |
+| coai_rainfall_raw | COAI 原始降雨量 | mm（原始數值）🆕 |
 
 ⚠️ **`record_date`、每日統計和 COAI 欄位只在每天第一筆記錄中有值**
 
@@ -230,6 +234,30 @@ ORDER BY record_date;
 - **daily_avg_***: 每日平均值
 - **daily_max_***: 每日最大值
 - **daily_min_***: 每日最小值
+
+### 每日劑量計算 (Dosage) 🆕
+使用**梯形積分法**計算每日累積劑量：
+
+**計算公式：**
+```
+Dosage = ∫ value(t) dt ≈ Σ[(v_i + v_{i+1}) / 2 × Δt]
+```
+
+**單位說明：**
+- **daily_lux_dosage**: lux·hour（照度累積）
+- **daily_uv_usa_dosage**: W·h/m²（UV能量累積）
+- **daily_uv_ref_dosage**: W·h/m²（UV能量累積）
+
+**應用場景：**
+- 材料曝曬總量評估
+- 累積紫外線劑量分析
+- 光照能量累計計算
+
+### COAI 降雨欄位說明 🆕
+- **coai_rainfall**: 顯示是否有降雨
+  - `"1"` = 當天有降雨（原始值 > 0）
+  - `NULL`（空白）= 當天無降雨（原始值 = 0 或 NULL）
+- **coai_rainfall_raw**: 保存原始降雨量數值（mm）
 
 ### 資料量比較
 

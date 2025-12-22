@@ -146,8 +146,12 @@ class COAIDataImporter:
             print(f"無法從檔名提取年月: {filepath}")
             return None
         
+        # 獲取該月的實際天數
+        import calendar
+        max_days = calendar.monthrange(year, month)[1]
+        
         print(f"\n處理檔案: {os.path.basename(filepath)}")
-        print(f"年份: {year}, 月份: {month}")
+        print(f"年份: {year}, 月份: {month}, 該月有 {max_days} 天")
         
         try:
             # 讀取Excel檔案，跳過第一行中文標題，使用第二行英文標題作為列名
@@ -178,21 +182,39 @@ class COAIDataImporter:
             print(f"欄位映射: {col_mapping}")
             
             records = []
+            skipped = 0
             
             for idx, row in df.iterrows():
                 try:
                     # 解析日期
-                    obs_date = row.iloc[col_mapping['date']]
-                    if pd.isna(obs_date):
+                    obs_date_raw = row.iloc[col_mapping['date']]
+                    if pd.isna(obs_date_raw):
                         continue
                     
-                    # 處理日期格式
-                    if isinstance(obs_date, (int, float)):
-                        # 如果是數字，補齊為完整日期
-                        day = int(obs_date)
-                        obs_date = pd.Timestamp(year=year, month=month, day=day)
-                    elif isinstance(obs_date, str):
-                        obs_date = pd.to_datetime(obs_date)
+                    # 解析日期數字
+                    day_num = None
+                    if isinstance(obs_date_raw, (int, float)):
+                        day_num = int(obs_date_raw)
+                    elif isinstance(obs_date_raw, str):
+                        try:
+                            parsed = pd.to_datetime(obs_date_raw)
+                            day_num = parsed.day
+                        except:
+                            continue
+                    elif hasattr(obs_date_raw, 'day'):
+                        day_num = obs_date_raw.day
+                    
+                    # 跳過超出該月天數的日期（例如11月沒有31日）
+                    if day_num is None or day_num > max_days:
+                        skipped += 1
+                        continue
+                    
+                    # 創建有效日期
+                    try:
+                        obs_date = pd.Timestamp(year=year, month=month, day=day_num).date()
+                    except:
+                        skipped += 1
+                        continue
                     
                     # 提取各項數據，處理 '/', 'X' 和空值
                     def safe_float(val):
@@ -210,26 +232,27 @@ class COAIDataImporter:
                     wind_gust = safe_float(row.iloc[col_mapping.get('wind_gust')]) if 'wind_gust' in col_mapping else None
                     rainfall = safe_float(row.iloc[col_mapping.get('rainfall')]) if 'rainfall' in col_mapping else None
                     
-                    # rainfall 為 0 時設為 "/" 表示無降雨
-                    # 注意：這裡 rainfall 保持為數字，在 GL860 更新時才轉換為 "/"
-                    
-                    records.append({
-                        'year': year,
-                        'month': month,
-                        'obs_date': obs_date.date(),
-                        'temperature': temperature,
-                        'humidity': humidity,
-                        'wind_speed': wind_speed,
-                        'wind_direction': wind_direction,
-                        'wind_gust': wind_gust,
-                        'rainfall': rainfall
-                    })
+                    # 只有當至少有一個有效數據時才加入記錄
+                    if temperature is not None or humidity is not None or rainfall is not None:
+                        records.append({
+                            'year': year,
+                            'month': month,
+                            'obs_date': obs_date,
+                            'temperature': temperature,
+                            'humidity': humidity,
+                            'wind_speed': wind_speed,
+                            'wind_direction': wind_direction,
+                            'wind_gust': wind_gust,
+                            'rainfall': rainfall
+                        })
+                    else:
+                        skipped += 1
                     
                 except Exception as e:
                     print(f"處理第 {idx} 行時發生錯誤: {e}")
                     continue
             
-            print(f"成功解析 {len(records)} 筆記錄")
+            print(f"成功解析 {len(records)} 筆有效記錄" + (f"，跳過 {skipped} 筆無效記錄" if skipped > 0 else ""))
             return records
             
         except Exception as e:
@@ -307,7 +330,7 @@ class COAIDataImporter:
             except:
                 pass  # 如果已經是 VARCHAR 則忽略
             
-            # rainfall = 0 或 NULL 時設為 "/"，其他正常更新
+            # coai_rainfall: 有數值(>0)時設為 "1"，無數值(NULL 或 0)時設為 NULL（不顯示）
             update_query = """
             UPDATE gl860_weather_data g
             INNER JOIN (
@@ -322,8 +345,8 @@ class COAIDataImporter:
                 g.coai_temperature = c.temperature,
                 g.coai_humidity = c.humidity,
                 g.coai_rainfall = CASE 
-                    WHEN c.rainfall IS NULL OR c.rainfall = 0 THEN '/' 
-                    ELSE CAST(c.rainfall AS CHAR) 
+                    WHEN c.rainfall > 0 THEN '1' 
+                    ELSE NULL 
                 END
             """
             
@@ -332,19 +355,7 @@ class COAIDataImporter:
             
             affected_rows = cursor.rowcount
             print(f"成功更新 {affected_rows} 筆GL860記錄的COAI數據")
-            
-            # 將現有的 coai_rainfall = 0 或 '0' 或 '0.00' 或 NULL 更新為 "/"
-            cursor.execute("""
-                UPDATE gl860_weather_data 
-                SET coai_rainfall = '/' 
-                WHERE (coai_rainfall = '0' OR coai_rainfall = '0.00' 
-                       OR coai_rainfall IS NULL OR coai_rainfall = '')
-                AND coai_temperature IS NOT NULL
-            """)
-            self.connection.commit()
-            zero_to_slash = cursor.rowcount
-            if zero_to_slash > 0:
-                print(f"已將 {zero_to_slash} 筆 coai_rainfall = 0/NULL 的記錄更新為 '/'")
+            print("注意: coai_rainfall 欄位 - 有降雨顯示'1'，無降雨為空白(NULL)")
             
             # 清除非第一筆記錄的COAI數據（確保只有每天第一筆有數據）
             clear_query = """
