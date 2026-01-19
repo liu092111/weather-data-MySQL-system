@@ -57,7 +57,7 @@ class GL860DataImporter:
             "DROP TABLE IF EXISTS coai_weather_data"
         ]
         
-        # 欄位順序：基本資訊 → Channel 1-5 → COAI → Daily統計（dosage 放在對應的 avg 旁邊）
+        # 欄位順序：基本資訊 → Channel 1-5 → Channel 6-17 (device溫度) → COAI → Daily統計（平均值 + dosage）
         create_table_query = """
         CREATE TABLE IF NOT EXISTS gl860_weather_data (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -71,6 +71,18 @@ class GL860DataImporter:
             channel3_lux DECIMAL(10, 2),
             channel4_uv_usa DECIMAL(10, 2),
             channel5_uv_ref DECIMAL(10, 2),
+            channel6_goldfish_camera_white DECIMAL(10, 2),
+            channel7_goldfish_lamp_white DECIMAL(10, 2),
+            channel8_clownfish_top_black DECIMAL(10, 2),
+            channel9_clownfish_camera_black DECIMAL(10, 2),
+            channel10_sailfish_top_black DECIMAL(10, 2),
+            channel11_sailfish_camera_black DECIMAL(10, 2),
+            channel12_marlin_camera_white DECIMAL(10, 2),
+            channel13_marlin_lamp_white DECIMAL(10, 2),
+            channel14_sailfish_top_white DECIMAL(10, 2),
+            channel15_sailfish_camera_white DECIMAL(10, 2),
+            channel16_marlin_camera_black DECIMAL(10, 2),
+            channel17_marlin_lamp_black DECIMAL(10, 2),
             coai_temperature DECIMAL(10, 2),
             coai_humidity DECIMAL(10, 2),
             coai_rainfall VARCHAR(20),
@@ -83,18 +95,6 @@ class GL860DataImporter:
             daily_uv_usa_dosage DECIMAL(15, 2),
             daily_avg_uv_ref DECIMAL(10, 2),
             daily_uv_ref_dosage DECIMAL(15, 2),
-            daily_max_temperature DECIMAL(10, 2),
-            daily_max_humidity DECIMAL(10, 2),
-            daily_max_lux DECIMAL(10, 2),
-            daily_max_uv_usa DECIMAL(10, 2),
-            daily_max_uv_ref DECIMAL(10, 2),
-            daily_min_temperature DECIMAL(10, 2),
-            daily_min_humidity DECIMAL(10, 2),
-            daily_min_lux DECIMAL(10, 2),
-            daily_min_uv_usa DECIMAL(10, 2),
-            daily_min_uv_ref DECIMAL(10, 2),
-            daily_temperature_delta DECIMAL(10, 2),
-            daily_humidity_delta DECIMAL(10, 2),
             daily_record_count INT,
             INDEX idx_year_month (year, month),
             INDEX idx_record_time (record_time),
@@ -165,65 +165,13 @@ class GL860DataImporter:
             return float(value)
         return value
     
-    def calculate_daily_statistics(self, all_records_df):
-        daily_stats = {}
-        all_records_df['date'] = pd.to_datetime(all_records_df['record_time']).dt.date
-        
-        for date, group in all_records_df.groupby('date'):
-            # 排序以進行積分計算
-            group = group.sort_values('record_time')
-            
-            stats = {
-                'daily_avg_temperature': group['channel1_temperature'].mean() if group['channel1_temperature'].notna().any() else None,
-                'daily_max_temperature': group['channel1_temperature'].max() if group['channel1_temperature'].notna().any() else None,
-                'daily_min_temperature': group['channel1_temperature'].min() if group['channel1_temperature'].notna().any() else None,
-                'daily_avg_humidity': group['channel2_humidity'].mean() if group['channel2_humidity'].notna().any() else None,
-                'daily_max_humidity': group['channel2_humidity'].max() if group['channel2_humidity'].notna().any() else None,
-                'daily_min_humidity': group['channel2_humidity'].min() if group['channel2_humidity'].notna().any() else None,
-                'daily_avg_lux': group['channel3_lux'].mean() if group['channel3_lux'].notna().any() else None,
-                'daily_max_lux': group['channel3_lux'].max() if group['channel3_lux'].notna().any() else None,
-                'daily_min_lux': group['channel3_lux'].min() if group['channel3_lux'].notna().any() else None,
-                'daily_avg_uv_usa': group['channel4_uv_usa'].mean() if group['channel4_uv_usa'].notna().any() else None,
-                'daily_max_uv_usa': group['channel4_uv_usa'].max() if group['channel4_uv_usa'].notna().any() else None,
-                'daily_min_uv_usa': group['channel4_uv_usa'].min() if group['channel4_uv_usa'].notna().any() else None,
-                'daily_avg_uv_ref': group['channel5_uv_ref'].mean() if group['channel5_uv_ref'].notna().any() else None,
-                'daily_max_uv_ref': group['channel5_uv_ref'].max() if group['channel5_uv_ref'].notna().any() else None,
-                'daily_min_uv_ref': group['channel5_uv_ref'].min() if group['channel5_uv_ref'].notna().any() else None,
-                'daily_record_count': len(group)
-            }
-            
-            if stats['daily_max_temperature'] is not None and stats['daily_min_temperature'] is not None:
-                stats['daily_temperature_delta'] = stats['daily_max_temperature'] - stats['daily_min_temperature']
-            else:
-                stats['daily_temperature_delta'] = None
-            
-            if stats['daily_max_humidity'] is not None and stats['daily_min_humidity'] is not None:
-                stats['daily_humidity_delta'] = stats['daily_max_humidity'] - stats['daily_min_humidity']
-            else:
-                stats['daily_humidity_delta'] = None
-            
-            # 計算每日 dosage (積分)
-            # 使用梯形積分法：∫f(t)dt ≈ Σ[(f(t_i) + f(t_{i+1})) / 2 * Δt]
-            # Δt 以小時為單位
-            stats['daily_lux_dosage'] = self.calculate_dosage(group, 'channel3_lux')
-            stats['daily_uv_usa_dosage'] = self.calculate_dosage(group, 'channel4_uv_usa')
-            stats['daily_uv_ref_dosage'] = self.calculate_dosage(group, 'channel5_uv_ref')
-            
-            for key in stats:
-                if stats[key] is not None and key != 'daily_record_count':
-                    stats[key] = round(float(stats[key]), 2)
-            
-            daily_stats[date] = stats
-        
-        return daily_stats
-    
     def calculate_dosage(self, group, column_name):
         """
         使用梯形積分法計算每日劑量 (dosage)
         Dosage = ∫ value(t) dt
         結果單位: 
         - lux: lux·hour (照度·小時)
-        - UV (W/m²): J/m² (焦耳/平方米) = W·s/m² = W/m² * 3600s/hour
+        - UV (W/m²): W·h/m² (瓦時/平方米)
         """
         if column_name not in group.columns:
             return None
@@ -232,9 +180,6 @@ class GL860DataImporter:
         valid_data = group[['record_time', column_name]].dropna()
         
         if len(valid_data) < 2:
-            # 如果只有一筆數據，無法進行積分
-            if len(valid_data) == 1:
-                return None
             return None
         
         valid_data = valid_data.sort_values('record_time')
@@ -254,6 +199,37 @@ class GL860DataImporter:
             total_dosage += avg_value * delta_hours
         
         return total_dosage
+    
+    def calculate_daily_statistics(self, all_records_df):
+        """計算每日統計數據（平均值 + dosage，不計算 max, min, delta）"""
+        daily_stats = {}
+        all_records_df['date'] = pd.to_datetime(all_records_df['record_time']).dt.date
+        
+        for date, group in all_records_df.groupby('date'):
+            # 排序以進行積分計算
+            group = group.sort_values('record_time')
+            
+            stats = {
+                'daily_avg_temperature': group['channel1_temperature'].mean() if group['channel1_temperature'].notna().any() else None,
+                'daily_avg_humidity': group['channel2_humidity'].mean() if group['channel2_humidity'].notna().any() else None,
+                'daily_avg_lux': group['channel3_lux'].mean() if group['channel3_lux'].notna().any() else None,
+                'daily_avg_uv_usa': group['channel4_uv_usa'].mean() if group['channel4_uv_usa'].notna().any() else None,
+                'daily_avg_uv_ref': group['channel5_uv_ref'].mean() if group['channel5_uv_ref'].notna().any() else None,
+                'daily_record_count': len(group)
+            }
+            
+            # 計算每日 dosage (積分)
+            stats['daily_lux_dosage'] = self.calculate_dosage(group, 'channel3_lux')
+            stats['daily_uv_usa_dosage'] = self.calculate_dosage(group, 'channel4_uv_usa')
+            stats['daily_uv_ref_dosage'] = self.calculate_dosage(group, 'channel5_uv_ref')
+            
+            for key in stats:
+                if stats[key] is not None and key != 'daily_record_count':
+                    stats[key] = round(float(stats[key]), 2)
+            
+            daily_stats[date] = stats
+        
+        return daily_stats
     
     def sample_records_30min(self, all_records_df, daily_stats):
         sampled_records = []
@@ -277,7 +253,19 @@ class GL860DataImporter:
                     'channel2_humidity': self.convert_to_python_type(first_record['channel2_humidity']),
                     'channel3_lux': self.convert_to_python_type(first_record['channel3_lux']),
                     'channel4_uv_usa': self.convert_to_python_type(first_record['channel4_uv_usa']),
-                    'channel5_uv_ref': self.convert_to_python_type(first_record['channel5_uv_ref'])
+                    'channel5_uv_ref': self.convert_to_python_type(first_record['channel5_uv_ref']),
+                    'channel6_goldfish_camera_white': self.convert_to_python_type(first_record.get('channel6_goldfish_camera_white')),
+                    'channel7_goldfish_lamp_white': self.convert_to_python_type(first_record.get('channel7_goldfish_lamp_white')),
+                    'channel8_clownfish_top_black': self.convert_to_python_type(first_record.get('channel8_clownfish_top_black')),
+                    'channel9_clownfish_camera_black': self.convert_to_python_type(first_record.get('channel9_clownfish_camera_black')),
+                    'channel10_sailfish_top_black': self.convert_to_python_type(first_record.get('channel10_sailfish_top_black')),
+                    'channel11_sailfish_camera_black': self.convert_to_python_type(first_record.get('channel11_sailfish_camera_black')),
+                    'channel12_marlin_camera_white': self.convert_to_python_type(first_record.get('channel12_marlin_camera_white')),
+                    'channel13_marlin_lamp_white': self.convert_to_python_type(first_record.get('channel13_marlin_lamp_white')),
+                    'channel14_sailfish_top_white': self.convert_to_python_type(first_record.get('channel14_sailfish_top_white')),
+                    'channel15_sailfish_camera_white': self.convert_to_python_type(first_record.get('channel15_sailfish_camera_white')),
+                    'channel16_marlin_camera_black': self.convert_to_python_type(first_record.get('channel16_marlin_camera_black')),
+                    'channel17_marlin_lamp_black': self.convert_to_python_type(first_record.get('channel17_marlin_lamp_black'))
                 }
                 
                 if first_record['record_time'] == group['record_time'].min():
@@ -287,12 +275,8 @@ class GL860DataImporter:
                 else:
                     record['record_date'] = None
                     for key in ['daily_avg_temperature', 'daily_avg_humidity', 'daily_avg_lux', 
-                               'daily_avg_uv_usa', 'daily_avg_uv_ref', 'daily_max_temperature',
-                               'daily_max_humidity', 'daily_max_lux', 'daily_max_uv_usa', 'daily_max_uv_ref',
-                               'daily_min_temperature', 'daily_min_humidity', 'daily_min_lux',
-                               'daily_min_uv_usa', 'daily_min_uv_ref', 'daily_temperature_delta',
-                               'daily_humidity_delta', 'daily_lux_dosage', 'daily_uv_usa_dosage',
-                               'daily_uv_ref_dosage', 'daily_record_count']:
+                               'daily_lux_dosage', 'daily_avg_uv_usa', 'daily_uv_usa_dosage',
+                               'daily_avg_uv_ref', 'daily_uv_ref_dosage', 'daily_record_count']:
                         record[key] = None
                 
                 sampled_records.append(record)
@@ -320,44 +304,40 @@ class GL860DataImporter:
                 print("找不到資料區域")
                 return None
             
-            df_data = pd.read_excel(filepath, sheet_name=0, skiprows=data_row + 2)
+            # 使用正確的標頭行（data_row + 1 是 'Number', 'Date&Time', 'CH1', 'CH2'... 行）
+            df_data = pd.read_excel(filepath, sheet_name=0, skiprows=data_row + 1, header=0)
+            # 跳過單位行（第一行數據是 'NO.', 'Time', 'degC', '%'...）
+            df_data = df_data.iloc[1:].reset_index(drop=True)
+            
+            print(f"讀取到的欄位: {df_data.columns.tolist()}")
+            
             date_col = None
             ch_cols = {}
-            data_columns = []
             
+            # 尋找日期時間欄位
+            for col in df_data.columns:
+                col_str = str(col).strip().lower()
+                if 'time' in col_str or 'date' in col_str:
+                    date_col = col
+                    break
+            
+            # 尋找 CH1, CH2... 欄位（包含可能帶括號的變體如 CH4(USA), CH5(Ref)）
             for col in df_data.columns:
                 col_str = str(col).strip()
-                if 'time' in col_str.lower():
-                    date_col = col
-                elif col_str not in ['NO.', 'Number'] and not col_str.startswith('Unnamed'):
-                    data_columns.append(col)
-            
-            for col in data_columns:
-                col_str = str(col)
-                col_lower = col_str.lower()
-                if 'degc' in col_lower and '.1' not in col_str:
-                    ch_cols[1] = col
-                elif '%' in col_str or 'rh' in col_lower:
-                    ch_cols[2] = col
-                elif 'lux' in col_lower:
-                    ch_cols[3] = col
-                elif 'usa' in col_lower:
-                    ch_cols[4] = col
-                elif 'ref' in col_lower:
-                    ch_cols[5] = col
-            
-            wm2_columns = [col for col in data_columns if 'w/m2' in str(col).lower()]
-            if len(wm2_columns) >= 2:
-                if 4 not in ch_cols:
-                    ch_cols[4] = wm2_columns[0]
-                if 5 not in ch_cols:
-                    ch_cols[5] = wm2_columns[1]
+                for ch_num in range(1, 18):
+                    if ch_num not in ch_cols:
+                        if col_str == f'CH{ch_num}' or col_str.startswith(f'CH{ch_num}(') or col_str.startswith(f'CH{ch_num} '):
+                            ch_cols[ch_num] = col
+                            break
             
             if date_col is None:
                 print("警告：找不到日期時間欄位")
                 return None
             
             print(f"識別的欄位: CH1={ch_cols.get(1)}, CH2={ch_cols.get(2)}, CH3={ch_cols.get(3)}, CH4={ch_cols.get(4)}, CH5={ch_cols.get(5)}")
+            if any(ch_cols.get(i) for i in range(6, 18)):
+                detected_chs = [f"CH{i}" for i in range(6, 18) if ch_cols.get(i)]
+                print(f"檢測到額外 Channel: {', '.join(detected_chs)}")
             
             all_records = []
             skipped_empty = 0
@@ -382,7 +362,21 @@ class GL860DataImporter:
                     if uv_ref_val is not None and uv_ref_val < 0:
                         uv_ref_val = 0
                     
-                    # 跳過所有數據欄位都是空的記錄
+                    # 讀取 CH6-CH17（device溫度感測器）
+                    ch6_val = float(row[ch_cols.get(6)]) if 6 in ch_cols and pd.notna(row.get(ch_cols.get(6))) else None
+                    ch7_val = float(row[ch_cols.get(7)]) if 7 in ch_cols and pd.notna(row.get(ch_cols.get(7))) else None
+                    ch8_val = float(row[ch_cols.get(8)]) if 8 in ch_cols and pd.notna(row.get(ch_cols.get(8))) else None
+                    ch9_val = float(row[ch_cols.get(9)]) if 9 in ch_cols and pd.notna(row.get(ch_cols.get(9))) else None
+                    ch10_val = float(row[ch_cols.get(10)]) if 10 in ch_cols and pd.notna(row.get(ch_cols.get(10))) else None
+                    ch11_val = float(row[ch_cols.get(11)]) if 11 in ch_cols and pd.notna(row.get(ch_cols.get(11))) else None
+                    ch12_val = float(row[ch_cols.get(12)]) if 12 in ch_cols and pd.notna(row.get(ch_cols.get(12))) else None
+                    ch13_val = float(row[ch_cols.get(13)]) if 13 in ch_cols and pd.notna(row.get(ch_cols.get(13))) else None
+                    ch14_val = float(row[ch_cols.get(14)]) if 14 in ch_cols and pd.notna(row.get(ch_cols.get(14))) else None
+                    ch15_val = float(row[ch_cols.get(15)]) if 15 in ch_cols and pd.notna(row.get(ch_cols.get(15))) else None
+                    ch16_val = float(row[ch_cols.get(16)]) if 16 in ch_cols and pd.notna(row.get(ch_cols.get(16))) else None
+                    ch17_val = float(row[ch_cols.get(17)]) if 17 in ch_cols and pd.notna(row.get(ch_cols.get(17))) else None
+                    
+                    # 跳過所有數據欄位都是空的記錄 (只檢查 CH1-5，因為 CH6-17 是新增的)
                     if temp_val is None and hum_val is None and lux_val is None and uv_usa_val is None and uv_ref_val is None:
                         skipped_empty += 1
                         continue
@@ -393,7 +387,19 @@ class GL860DataImporter:
                         'channel2_humidity': hum_val,
                         'channel3_lux': lux_val,
                         'channel4_uv_usa': uv_usa_val,
-                        'channel5_uv_ref': uv_ref_val
+                        'channel5_uv_ref': uv_ref_val,
+                        'channel6_goldfish_camera_white': ch6_val,
+                        'channel7_goldfish_lamp_white': ch7_val,
+                        'channel8_clownfish_top_black': ch8_val,
+                        'channel9_clownfish_camera_black': ch9_val,
+                        'channel10_sailfish_top_black': ch10_val,
+                        'channel11_sailfish_camera_black': ch11_val,
+                        'channel12_marlin_camera_white': ch12_val,
+                        'channel13_marlin_lamp_white': ch13_val,
+                        'channel14_sailfish_top_white': ch14_val,
+                        'channel15_sailfish_camera_white': ch15_val,
+                        'channel16_marlin_camera_black': ch16_val,
+                        'channel17_marlin_lamp_black': ch17_val
                     })
                 except:
                     continue
@@ -424,18 +430,19 @@ class GL860DataImporter:
         if not self.connection or not records:
             return False
         
-        # 欄位順序配合資料表：dosage 放在對應的 avg 旁邊
+        # 欄位順序配合資料表：CH1-5 → CH6-17 (device溫度) → Daily統計（平均值 + dosage）
         insert_query = """
         INSERT INTO gl860_weather_data 
         (year, month, date, record_date, record_time, 
          channel1_temperature, channel2_humidity, channel3_lux, channel4_uv_usa, channel5_uv_ref,
-         daily_avg_temperature, daily_avg_humidity, 
-         daily_avg_lux, daily_lux_dosage,
-         daily_avg_uv_usa, daily_uv_usa_dosage,
-         daily_avg_uv_ref, daily_uv_ref_dosage,
-         daily_max_temperature, daily_max_humidity, daily_max_lux, daily_max_uv_usa, daily_max_uv_ref,
-         daily_min_temperature, daily_min_humidity, daily_min_lux, daily_min_uv_usa, daily_min_uv_ref,
-         daily_temperature_delta, daily_humidity_delta,
+         channel6_goldfish_camera_white, channel7_goldfish_lamp_white,
+         channel8_clownfish_top_black, channel9_clownfish_camera_black,
+         channel10_sailfish_top_black, channel11_sailfish_camera_black,
+         channel12_marlin_camera_white, channel13_marlin_lamp_white,
+         channel14_sailfish_top_white, channel15_sailfish_camera_white,
+         channel16_marlin_camera_black, channel17_marlin_lamp_black,
+         daily_avg_temperature, daily_avg_humidity, daily_avg_lux, daily_lux_dosage,
+         daily_avg_uv_usa, daily_uv_usa_dosage, daily_avg_uv_ref, daily_uv_ref_dosage, 
          daily_record_count)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
@@ -444,13 +451,14 @@ class GL860DataImporter:
             cursor = self.connection.cursor()
             values = [(r['year'], r['month'], r['date'], r.get('record_date'), r['record_time'],
                       r['channel1_temperature'], r['channel2_humidity'], r['channel3_lux'], r['channel4_uv_usa'], r['channel5_uv_ref'],
-                      r.get('daily_avg_temperature'), r.get('daily_avg_humidity'), 
-                      r.get('daily_avg_lux'), r.get('daily_lux_dosage'),
-                      r.get('daily_avg_uv_usa'), r.get('daily_uv_usa_dosage'),
-                      r.get('daily_avg_uv_ref'), r.get('daily_uv_ref_dosage'),
-                      r.get('daily_max_temperature'), r.get('daily_max_humidity'), r.get('daily_max_lux'), r.get('daily_max_uv_usa'), r.get('daily_max_uv_ref'),
-                      r.get('daily_min_temperature'), r.get('daily_min_humidity'), r.get('daily_min_lux'), r.get('daily_min_uv_usa'), r.get('daily_min_uv_ref'),
-                      r.get('daily_temperature_delta'), r.get('daily_humidity_delta'),
+                      r.get('channel6_goldfish_camera_white'), r.get('channel7_goldfish_lamp_white'),
+                      r.get('channel8_clownfish_top_black'), r.get('channel9_clownfish_camera_black'),
+                      r.get('channel10_sailfish_top_black'), r.get('channel11_sailfish_camera_black'),
+                      r.get('channel12_marlin_camera_white'), r.get('channel13_marlin_lamp_white'),
+                      r.get('channel14_sailfish_top_white'), r.get('channel15_sailfish_camera_white'),
+                      r.get('channel16_marlin_camera_black'), r.get('channel17_marlin_lamp_black'),
+                      r.get('daily_avg_temperature'), r.get('daily_avg_humidity'), r.get('daily_avg_lux'), r.get('daily_lux_dosage'),
+                      r.get('daily_avg_uv_usa'), r.get('daily_uv_usa_dosage'), r.get('daily_avg_uv_ref'), r.get('daily_uv_ref_dosage'),
                       r.get('daily_record_count')) for r in records]
             cursor.executemany(insert_query, values)
             self.connection.commit()
@@ -477,8 +485,13 @@ class GL860DataImporter:
         print(f"\n總共導入 {total} 筆GL860記錄")
     
     def import_all_coai_files(self, folder_path='COAI'):
-        pattern = os.path.join(folder_path, 'C0AI10-*.xlsx')
-        files = [f for f in glob.glob(pattern) if not os.path.basename(f).startswith('~$')]
+        # 支援 .xlsx 和 .xls 兩種格式
+        pattern_xlsx = os.path.join(folder_path, 'C0AI10-*.xlsx')
+        pattern_xls = os.path.join(folder_path, 'C0AI10-*.xls')
+        files = glob.glob(pattern_xlsx) + glob.glob(pattern_xls)
+        # 去重並排除暫存檔
+        files = list(set(files))
+        files = [f for f in files if not os.path.basename(f).startswith('~$')]
         if not files:
             print("找不到COAI檔案")
             return
@@ -494,7 +507,7 @@ class GL860DataImporter:
     
     def parse_coai_file(self, filepath):
         basename = os.path.basename(filepath)
-        parts = basename.replace('.xlsx', '').split('-')
+        parts = basename.replace('.xlsx', '').replace('.xls', '').split('-')
         if len(parts) < 3:
             return None
         try:
@@ -502,7 +515,6 @@ class GL860DataImporter:
         except:
             return None
         
-        # 獲取該月的實際天數
         import calendar
         max_days = calendar.monthrange(year, month)[1]
         
@@ -529,7 +541,6 @@ class GL860DataImporter:
                     if pd.isna(d):
                         continue
                     
-                    # 解析日期
                     day_num = None
                     if isinstance(d, (int, float)):
                         day_num = int(d)
@@ -542,12 +553,10 @@ class GL860DataImporter:
                     elif hasattr(d, 'day'):
                         day_num = d.day
                     
-                    # 跳過超出該月天數的日期（例如11月沒有31日）
                     if day_num is None or day_num > max_days:
                         skipped += 1
                         continue
                     
-                    # 創建有效日期
                     try:
                         obs_date = pd.Timestamp(year=year, month=month, day=day_num).date()
                     except:
@@ -566,7 +575,6 @@ class GL860DataImporter:
                     hum = sf(row.iloc[col_map.get('hum')]) if 'hum' in col_map else None
                     rain = sf(row.iloc[col_map.get('rain')]) if 'rain' in col_map else None
                     
-                    # 只有當至少有一個有效數據時才加入記錄
                     if temp is not None or hum is not None or rain is not None:
                         records.append({
                             'year': year, 'month': month, 'obs_date': obs_date,
@@ -607,7 +615,6 @@ class GL860DataImporter:
             return
         try:
             cursor = self.connection.cursor()
-            # coai_rainfall: 有數值(>0)時設為 "1"，無數值(NULL 或 0)時設為 NULL（不顯示）
             cursor.execute("""
                 UPDATE gl860_weather_data g
                 INNER JOIN (SELECT DATE(record_time) as rd, MIN(id) as fid FROM gl860_weather_data GROUP BY DATE(record_time)) fr ON g.id = fr.fid
@@ -636,21 +643,20 @@ class GL860DataImporter:
                 print(f"{row[0]}/{row[1]:02d}: {row[2]} 筆, {row[3]} ~ {row[4]}")
             
             cursor.execute("""
-                SELECT record_date, daily_avg_temperature, daily_avg_humidity, daily_avg_lux, 
-                       daily_avg_uv_usa, daily_avg_uv_ref, coai_temperature, coai_humidity, coai_rainfall, 
-                       coai_rainfall_raw, daily_lux_dosage, daily_uv_usa_dosage, daily_uv_ref_dosage, daily_record_count
+                SELECT record_date, daily_avg_temperature, daily_avg_humidity, daily_avg_lux, daily_lux_dosage,
+                       daily_avg_uv_usa, daily_uv_usa_dosage, daily_avg_uv_ref, daily_uv_ref_dosage,
+                       coai_temperature, coai_humidity, coai_rainfall, coai_rainfall_raw, daily_record_count
                 FROM gl860_weather_data WHERE record_date IS NOT NULL ORDER BY record_date DESC LIMIT 5
             """)
             print("\n=== 最近5天統計 ===")
             for row in cursor.fetchall():
-                date, avg_temp, avg_hum, avg_lux, avg_uv_usa, avg_uv_ref = row[0:6]
-                coai_temp, coai_hum, coai_rain, coai_rain_raw = row[6:10]
-                lux_dose, uv_usa_dose, uv_ref_dose, rec_count = row[10:14]
+                date, avg_temp, avg_hum, avg_lux, lux_dose = row[0:5]
+                avg_uv_usa, uv_usa_dose, avg_uv_ref, uv_ref_dose = row[5:9]
+                coai_temp, coai_hum, coai_rain, coai_rain_raw, rec_count = row[9:14]
                 print(f"{date}: 均溫{avg_temp}°C, 均濕{avg_hum}%, 均LUX{avg_lux}, UV_USA{avg_uv_usa}, UV_Ref{avg_uv_ref}")
-                print(f"        COAI({coai_temp}°C,{coai_hum}%,雨:{coai_rain},原始:{coai_rain_raw}mm)")
-                print(f"        Dosage: LUX={lux_dose} lux·h, UV_USA={uv_usa_dose} W·h/m², UV_Ref={uv_ref_dose} W·h/m², 原始{rec_count}筆")
+                print(f"        Dosage: LUX={lux_dose} lux·h, UV_USA={uv_usa_dose} W·h/m², UV_Ref={uv_ref_dose} W·h/m²")
+                print(f"        COAI({coai_temp}°C,{coai_hum}%,雨:{coai_rain},原始:{coai_rain_raw}mm), 原始{rec_count}筆")
             
-            # 顯示 coai_rainfall 統計
             cursor.execute("""
                 SELECT coai_rainfall, COUNT(*) as cnt 
                 FROM gl860_weather_data 
@@ -658,7 +664,7 @@ class GL860DataImporter:
                 GROUP BY coai_rainfall
             """)
             print("\n=== COAI Rainfall 統計 ===")
-            print("'1' = 有降雨, '/' = 無降雨")
+            print("'1' = 有降雨")
             for row in cursor.fetchall():
                 label = "有降雨" if row[0] == '1' else "無降雨"
                 print(f"  {row[0]} ({label}): {row[1]} 天")
@@ -677,6 +683,7 @@ def main():
     print("GL860 & COAI 一次部署系統")
     print("Channel 1: 溫度, Channel 2: 濕度, Channel 3: LUX")
     print("Channel 4: UV (USA), Channel 5: UV (Ref)")
+    print("Channel 6-17: device溫度感測器 (2512起)")
     print("=" * 70)
     
     importer = GL860DataImporter(host='localhost', database='weather_data', user='root', password='')
@@ -690,24 +697,21 @@ def main():
         importer.close()
         return
     
-    # 步驟1: 導入GL860資料
     print("\n" + "=" * 50)
     print("步驟1: 導入GL860資料")
     print("=" * 50)
     importer.import_all_gl860_files('GL860')
     
-    # 步驟2: 導入COAI資料並更新到GL860
     print("\n" + "=" * 50)
     print("步驟2: 導入COAI資料")
     print("=" * 50)
     importer.import_all_coai_files('COAI')
     
-    # 步驟3: 驗證
     importer.verify_data()
     importer.close()
     
     print("\n" + "=" * 70)
-    print("部署完成！欄位順序: CH1-5 → COAI → Daily統計")
+    print("部署完成！欄位順序: CH1-5 → CH6-17 → COAI → Daily統計(avg+dosage)")
     print("=" * 70)
 
 
